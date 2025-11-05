@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'globals.dart';
+import 'services/auth_service.dart';
 import 'register_page.dart';
 import 'discover_page.dart';
 
@@ -13,12 +14,53 @@ class LoginPage extends StatefulWidget {
 class _LoginPageState extends State<LoginPage> {
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
+  bool isLoading = false;
 
   Future<void> loginUser() async {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const DiscoverPage()),
-    );
+    final String email = emailController.text.trim();
+    final String password = passwordController.text;
+
+    if (email.isEmpty || password.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter email and password')));
+      return;
+    }
+
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      final resp = await AuthService.login(email: email, password: password);
+      // success
+      loggedIn = true;
+      user = resp['user'] ?? resp;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const DiscoverPage()),
+      );
+    } catch (e) {
+      final msg = e.toString();
+      String friendly = 'Logowanie nie powiodło się.';
+      if (msg.contains('Invalid credentials')) {
+        friendly = 'Nieprawidłowy email lub hasło.';
+      } else if (msg.contains('Missing fields')) {
+        friendly = 'Podaj email i hasło.';
+      } else if (msg.contains('Login failed:')) {
+        // show server-provided message if any
+        final parts = msg.split(':');
+        if (parts.length > 1) friendly = parts.sublist(1).join(':').trim();
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendly)));
+    }
+    finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -73,13 +115,15 @@ class _LoginPageState extends State<LoginPage> {
             ),
             const SizedBox(height: 24.0),
             ElevatedButton(
-              onPressed: loginUser,
+              onPressed: isLoading ? null : loginUser,
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(persimon),
                 foregroundColor: Colors.white,
                 padding: const EdgeInsets.symmetric(vertical: 16.0),
               ),
-              child: const Text("Log In"),
+              child: isLoading
+                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2.0, color: Colors.white))
+                  : const Text("Log In"),
             ),
             const SizedBox(height: 16.0),
             TextButton(

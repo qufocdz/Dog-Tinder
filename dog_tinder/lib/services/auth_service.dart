@@ -44,6 +44,31 @@ class AuthService {
       throw Exception('Register failed: ${resp.statusCode} ${resp.body}');
     }
   }
+
+  /// Log in an existing user using email and password.
+  /// Returns a Map parsed from JSON response on success, or throws an exception.
+  static Future<Map<String, dynamic>> login({
+    required String email,
+    required String password,
+  }) async {
+    final uri = Uri.parse('$apiBaseUrl/api/login');
+
+    final resp = await http.post(
+      uri,
+      headers: {'Content-Type': 'application/json'},
+      body: json.encode({'email': email, 'password': password}),
+    );
+
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      return json.decode(resp.body) as Map<String, dynamic>;
+    } else if (resp.statusCode == 401) {
+      throw Exception('Invalid credentials');
+    } else if (resp.statusCode == 400) {
+      throw Exception('Missing fields');
+    } else {
+      throw Exception('Login failed: ${resp.statusCode} ${resp.body}');
+    }
+  }
 }
 
 // Minimal mime-type lookup to avoid extra dependencies
@@ -54,3 +79,4 @@ String? lookupMimeType(String path) {
   if (lower.endsWith('.gif')) return 'image/gif';
   return null;
 }
+
