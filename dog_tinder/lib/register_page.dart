@@ -1,7 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'globals.dart';
 import 'discover_page.dart';
+import 'services/auth_service.dart';
 
 class RegisterPage extends StatefulWidget {
   const RegisterPage({super.key});
@@ -13,28 +17,96 @@ class RegisterPage extends StatefulWidget {
 class _RegisterPageState extends State<RegisterPage> {
   bool agreeToTerms = false;
 
-  final TextEditingController nameController = TextEditingController();
-
+  // New fields for dog-focused registration
+  final TextEditingController dogNameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
-
   final TextEditingController passwordController = TextEditingController();
+  final TextEditingController birthdateController = TextEditingController(); // readOnly, shows chosen date
+  final TextEditingController descriptionController = TextEditingController();
 
-  final TextEditingController phoneController = TextEditingController();
+  File? dogImageFile;
+  final ImagePicker _picker = ImagePicker();
+  DateTime? dogBirthdate;
+  bool isLoading = false;
 
-  final TextEditingController streetAndNumberController =
-      TextEditingController();
+  Future<void> pickDogImage() async {
+    final XFile? picked = await _picker.pickImage(source: ImageSource.gallery, maxWidth: 1200, maxHeight: 1200, imageQuality: 85);
+    if (picked != null) {
+      setState(() {
+        dogImageFile = File(picked.path);
+      });
+    }
+  }
 
-  final TextEditingController postalCodeController = TextEditingController();
+  Future<void> pickBirthdate() async {
+    final DateTime now = DateTime.now();
+    final DateTime initial = DateTime(now.year - 2);
+    final DateTime first = DateTime(now.year - 20);
+    final DateTime last = now;
 
-  final TextEditingController cityController = TextEditingController();
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: dogBirthdate ?? initial,
+      firstDate: first,
+      lastDate: last,
+    );
 
-  final TextEditingController countryController = TextEditingController();
+    if (picked != null) {
+      setState(() {
+        dogBirthdate = picked;
+        birthdateController.text = "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
+      });
+    }
+  }
 
   Future<void> registerUser() async {
-    Navigator.pushReplacement(
-      context,
-      MaterialPageRoute(builder: (context) => const DiscoverPage()),
-    );
+    // Basic validation
+    final String dogName = dogNameController.text.trim();
+    final String email = emailController.text.trim();
+    final String password = passwordController.text;
+    final String description = descriptionController.text.trim();
+
+    if (dogName.isEmpty || email.isEmpty || password.isEmpty || dogBirthdate == null || description.isEmpty || dogImageFile == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all fields and choose a dog photo.')));
+      return;
+    }
+
+    if (!agreeToTerms) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You must agree to the Terms and Conditions.')));
+      return;
+    }
+
+    setState(() {
+      isLoading = true;
+    });
+
+    try {
+      final resp = await AuthService.register(
+        dogName: dogName,
+        email: email,
+        password: password,
+        birthdate: birthdateController.text,
+        description: description,
+        dogImage: dogImageFile!,
+      );
+
+      // On success, update globals and navigate
+      loggedIn = true;
+      user = resp['user'] ?? resp;
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const DiscoverPage()),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
+    } finally {
+      if (mounted) {
+        setState(() {
+          isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -58,10 +130,11 @@ class _RegisterPageState extends State<RegisterPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
+                    // Dog name
                     TextField(
-                      controller: nameController,
+                      controller: dogNameController,
                       decoration: const InputDecoration(
-                        labelText: "Full Name",
+                        labelText: "Dog name",
                         enabledBorder: OutlineInputBorder(
                           borderSide: BorderSide(
                             color: Color(richBlack),
@@ -75,20 +148,46 @@ class _RegisterPageState extends State<RegisterPage> {
                           ),
                         ),
                         prefixIcon: Icon(
-                          Icons.person_2_outlined,
+                          Icons.pets_outlined,
                           color: Color(richBlack),
                         ),
                         labelStyle: TextStyle(color: Color(richBlack)),
                       ),
                       cursorColor: const Color(persimon),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                          RegExp(r"[a-zA-ZąćęłńóśźżĄĘŁŃÓŚŹŻ\s]"),
+                      inputFormatters: [LengthLimitingTextInputFormatter(32)],
+                    ),
+                    const SizedBox(height: 16.0),
+
+                    // Dog photo picker
+                    Row(
+                      children: [
+                        GestureDetector(
+                          onTap: pickDogImage,
+                          child: dogImageFile != null
+                              ? CircleAvatar(
+                                  radius: 40,
+                                  backgroundImage: FileImage(dogImageFile!),
+                                )
+                              : const CircleAvatar(
+                                  radius: 40,
+                                  backgroundColor: Color(0xFFEFEFEF),
+                                  child: Icon(Icons.add_a_photo_outlined, color: Color(richBlack)),
+                                ),
                         ),
-                        LengthLimitingTextInputFormatter(32),
+                        const SizedBox(width: 12.0),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: pickDogImage,
+                            icon: const Icon(Icons.photo_library_outlined),
+                            label: const Text('Choose dog photo'),
+                            style: ElevatedButton.styleFrom(backgroundColor: const Color(persimon)),
+                          ),
+                        ),
                       ],
                     ),
                     const SizedBox(height: 16.0),
+
+                    // Email
                     TextField(
                       controller: emailController,
                       decoration: const InputDecoration(
@@ -115,6 +214,8 @@ class _RegisterPageState extends State<RegisterPage> {
                       keyboardType: TextInputType.emailAddress,
                     ),
                     const SizedBox(height: 16.0),
+
+                    // Password
                     TextField(
                       controller: passwordController,
                       decoration: const InputDecoration(
@@ -139,13 +240,17 @@ class _RegisterPageState extends State<RegisterPage> {
                       ),
                       cursorColor: const Color(persimon),
                       obscureText: true,
-                      inputFormatters: [LengthLimitingTextInputFormatter(32)],
+                      inputFormatters: [LengthLimitingTextInputFormatter(64)],
                     ),
                     const SizedBox(height: 16.0),
+
+                    // Birthdate picker
                     TextField(
-                      controller: phoneController,
+                      controller: birthdateController,
+                      readOnly: true,
+                      onTap: pickBirthdate,
                       decoration: const InputDecoration(
-                        labelText: "Phone number",
+                        labelText: "Dog birthdate",
                         enabledBorder: OutlineInputBorder(
                           borderSide: BorderSide(
                             color: Color(richBlack),
@@ -159,28 +264,20 @@ class _RegisterPageState extends State<RegisterPage> {
                           ),
                         ),
                         prefixIcon: Icon(
-                          Icons.phone_outlined,
+                          Icons.cake_outlined,
                           color: Color(richBlack),
-                        ),
-                        prefixText: "+48 ",
-                        prefixStyle: TextStyle(
-                          color: Color(richBlack),
-                          fontSize: 16.0,
                         ),
                         labelStyle: TextStyle(color: Color(richBlack)),
                       ),
                       cursorColor: const Color(persimon),
-                      keyboardType: TextInputType.phone,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(9),
-                      ],
                     ),
                     const SizedBox(height: 16.0),
+
+                    // Description
                     TextField(
-                      controller: streetAndNumberController,
+                      controller: descriptionController,
                       decoration: const InputDecoration(
-                        labelText: "Street and number",
+                        labelText: "Description",
                         enabledBorder: OutlineInputBorder(
                           borderSide: BorderSide(
                             color: Color(richBlack),
@@ -194,107 +291,17 @@ class _RegisterPageState extends State<RegisterPage> {
                           ),
                         ),
                         prefixIcon: Icon(
-                          Icons.add_location_outlined,
+                          Icons.description_outlined,
                           color: Color(richBlack),
                         ),
                         labelStyle: TextStyle(color: Color(richBlack)),
                       ),
                       cursorColor: const Color(persimon),
-                      inputFormatters: [LengthLimitingTextInputFormatter(32)],
+                      maxLines: 4,
+                      inputFormatters: [LengthLimitingTextInputFormatter(500)],
                     ),
                     const SizedBox(height: 16.0),
-                    TextField(
-                      controller: postalCodeController,
-                      decoration: const InputDecoration(
-                        labelText: "Postal code",
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(
-                            color: Color(richBlack),
-                            width: 2.0,
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(
-                            color: Color(richBlack),
-                            width: 2.0,
-                          ),
-                        ),
-                        prefixIcon: Icon(
-                          Icons.local_post_office_outlined,
-                          color: Color(richBlack),
-                        ),
-                        labelStyle: TextStyle(color: Color(richBlack)),
-                      ),
-                      cursorColor: const Color(persimon),
-                      keyboardType: TextInputType.number,
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        PostalCodeFormatter(),
-                      ],
-                    ),
-                    const SizedBox(height: 16.0),
-                    TextField(
-                      controller: cityController,
-                      decoration: const InputDecoration(
-                        labelText: "City",
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(
-                            color: Color(richBlack),
-                            width: 2.0,
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(
-                            color: Color(richBlack),
-                            width: 2.0,
-                          ),
-                        ),
-                        prefixIcon: Icon(
-                          Icons.location_city_outlined,
-                          color: Color(richBlack),
-                        ),
-                        labelStyle: TextStyle(color: Color(richBlack)),
-                      ),
-                      cursorColor: const Color(persimon),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                          RegExp(r"[a-zA-ZąćęłńóśźżĄĘŁŃÓŚŹŻ\s]"),
-                        ),
-                        LengthLimitingTextInputFormatter(32),
-                      ],
-                    ),
-                    const SizedBox(height: 16.0),
-                    TextField(
-                      controller: countryController,
-                      decoration: const InputDecoration(
-                        labelText: "Country",
-                        enabledBorder: OutlineInputBorder(
-                          borderSide: BorderSide(
-                            color: Color(richBlack),
-                            width: 2.0,
-                          ),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderSide: BorderSide(
-                            color: Color(richBlack),
-                            width: 2.0,
-                          ),
-                        ),
-                        prefixIcon: Icon(
-                          Icons.public_outlined,
-                          color: Color(richBlack),
-                        ),
-                        labelStyle: TextStyle(color: Color(richBlack)),
-                      ),
-                      cursorColor: const Color(persimon),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.allow(
-                          RegExp(r"[a-zA-ZąćęłńóśźżĄĘŁŃÓŚŹŻ\s]"),
-                        ),
-                        LengthLimitingTextInputFormatter(32),
-                      ],
-                    ),
-                    const SizedBox(height: 16.0),
+
                     Row(
                       children: [
                         Checkbox(
@@ -320,13 +327,22 @@ class _RegisterPageState extends State<RegisterPage> {
                     ),
                     const SizedBox(height: 16.0),
                     ElevatedButton(
-                      onPressed: registerUser,
+                      onPressed: isLoading ? null : registerUser,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(persimon),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(vertical: 16.0),
                       ),
-                      child: const Text("Register"),
+                      child: isLoading
+                          ? const SizedBox(
+                              height: 20,
+                              width: 20,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.0,
+                                color: Colors.white,
+                              ),
+                            )
+                          : const Text("Register"),
                     ),
                     const SizedBox(height: 16.0),
                     TextButton(

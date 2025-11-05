@@ -25,3 +25,15 @@ doc/api/
 
 .flutter-plugins
 .flutter-plugins-dependencies
+
+# Server (Node.js) - ignore common artifacts and secrets
+server/node_modules/
+server/.env
+server/.env.*
+server/uploads/
+server/npm-debug.log*
+server/yarn-error.log*
+server/dist/
+server/.idea/
+server/.vscode/
+server/.DS_Store
