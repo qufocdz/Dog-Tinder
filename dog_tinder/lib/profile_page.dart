@@ -1,4 +1,6 @@
 import 'package:dog_tinder/globals.dart';
+import 'package:dog_tinder/login_page.dart';
+import 'package:dog_tinder/services/auth_service.dart';
 import 'package:flutter/material.dart';
 import 'chat_history_page.dart';
 
@@ -141,6 +143,25 @@ class _ProfilePageState extends State<ProfilePage> {
     });
   }
 
+  Future<void> _logout() async {
+    try {
+      await AuthService.logout();
+      if (mounted) {
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (context) => const LoginPage()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error logging out: $e')));
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -198,6 +219,22 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                         child: Icon(
                           isEditMode ? Icons.check : Icons.edit_outlined,
+                          size: 24,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                    // Logout button
+                    IconButton(
+                      onPressed: _logout,
+                      icon: Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Color(persimon),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.logout,
                           size: 24,
                           color: Colors.white,
                         ),

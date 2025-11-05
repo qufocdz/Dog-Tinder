@@ -26,6 +26,15 @@ doc/api/
 .flutter-plugins
 .flutter-plugins-dependencies
 
+# Flutter generated plugin files
+**/GeneratedPluginRegistrant.swift
+**/GeneratedPluginRegistrant.m
+**/GeneratedPluginRegistrant.h
+**/generated_plugin_registrant.cc
+**/generated_plugin_registrant.h
+**/generated_plugins.cmake
+**/GeneratedPluginRegistrant.java
+
 # Server (Node.js) - ignore common artifacts and secrets
 server/node_modules/
 server/.env

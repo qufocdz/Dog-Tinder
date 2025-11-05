@@ -4,6 +4,7 @@ const cors = require('cors');
 const mongoose = require('mongoose');
 const multer = require('multer');
 const bcrypt = require('bcrypt');
+const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const path = require('path');
 
@@ -25,6 +26,28 @@ const storage = multer.diskStorage({
 });
 
 const upload = multer({ storage });
+
+// JWT utility functions
+const generateToken = (userId) => {
+  return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
+};
+
+const verifyToken = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+
+  if (!token) {
+    return res.status(401).json({ error: 'Access token required' });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(403).json({ error: 'Invalid or expired token' });
+    }
+    req.userId = decoded.userId;
+    next();
+  });
+};
 
 const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/dog_tinder_dev';
 console.log('Attempting to connect to MongoDB...');
@@ -95,7 +118,21 @@ app.post('/api/register', upload.single('dogImage'), async (req, res) => {
 
     await user.save();
 
-    return res.json({ success: true, user: { id: user._id, dogName: user.dogName, email: user.email, birthdate: user.birthdate, description: user.description, imagePath: user.imagePath } });
+    // Generate JWT token
+    const token = generateToken(user._id);
+
+    return res.json({ 
+      success: true, 
+      token,
+      user: { 
+        id: user._id, 
+        dogName: user.dogName, 
+        email: user.email, 
+        birthdate: user.birthdate, 
+        description: user.description, 
+        imagePath: user.imagePath 
+      } 
+    });
   } catch (err) {
     console.error('Registration error details:', {
       message: err.message,
@@ -117,7 +154,21 @@ app.post('/api/login', express.urlencoded({ extended: true }), async (req, res) 
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
 
-    return res.json({ success: true, user: { id: user._id, dogName: user.dogName, email: user.email, birthdate: user.birthdate, description: user.description, imagePath: user.imagePath } });
+    // Generate JWT token
+    const token = generateToken(user._id);
+
+    return res.json({ 
+      success: true, 
+      token,
+      user: { 
+        id: user._id, 
+        dogName: user.dogName, 
+        email: user.email, 
+        birthdate: user.birthdate, 
+        description: user.description, 
+        imagePath: user.imagePath 
+      } 
+    });
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Server error' });
