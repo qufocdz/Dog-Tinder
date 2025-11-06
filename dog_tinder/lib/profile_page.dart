@@ -1,50 +1,8 @@
-import 'package:dog_tinder/globals.dart';
-import 'package:dog_tinder/login_page.dart';
-import 'package:dog_tinder/services/auth_service.dart';
 import 'package:flutter/material.dart';
+import 'globals.dart';
 import 'chat_history_page.dart';
-
-// Mock user profile model - to be replaced with API data
-class UserProfile {
-  String dogName;
-  DateTime birthDate;
-  String description;
-  String imageUrl;
-
-  UserProfile({
-    required this.dogName,
-    required this.birthDate,
-    required this.description,
-    required this.imageUrl,
-  });
-
-  String getAgeString() {
-    final now = DateTime.now();
-    int years = now.year - birthDate.year;
-    int months = now.month - birthDate.month;
-
-    if (months < 0) {
-      years--;
-      months += 12;
-    }
-
-    if (now.day < birthDate.day) {
-      months--;
-      if (months < 0) {
-        years--;
-        months += 12;
-      }
-    }
-
-    if (years == 0) {
-      return '$months ${months == 1 ? "month" : "months"} old';
-    } else if (months == 0) {
-      return '$years ${years == 1 ? "year" : "years"} old';
-    } else {
-      return '$years ${years == 1 ? "year" : "years"} and $months ${months == 1 ? "month" : "months"} old';
-    }
-  }
-}
+import 'services/chat_service.dart' show baseUrl; // tylko baseUrl
+import 'services/user_service.dart' show UserService; // tylko klasa
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -58,26 +16,20 @@ class _ProfilePageState extends State<ProfilePage> {
   late TextEditingController nameController;
   late TextEditingController descriptionController;
   late DateTime selectedBirthDate;
+
   final FocusNode nameFocusNode = FocusNode();
   final FocusNode descriptionFocusNode = FocusNode();
-
-  // Mock user data
-  final userProfile = UserProfile(
-    dogName: 'Bella',
-    birthDate: DateTime(2021, 1, 15), // 4 years old approximately
-    description: 'Friendly dog who loves to play fetch.',
-    imageUrl:
-        'https://images.unsplash.com/photo-1568572933382-74d440642117?w=800',
-  );
 
   @override
   void initState() {
     super.initState();
-    nameController = TextEditingController(text: userProfile.dogName);
-    selectedBirthDate = userProfile.birthDate;
-    descriptionController = TextEditingController(
-      text: userProfile.description,
-    );
+    final u = user ?? {};
+    nameController =
+        TextEditingController(text: (u['dogName'] ?? '').toString());
+    descriptionController =
+        TextEditingController(text: (u['description'] ?? '').toString());
+    selectedBirthDate =
+        _parseIso(u['birthdate']?.toString()) ?? DateTime(2020, 1, 1);
   }
 
   @override
@@ -89,35 +41,44 @@ class _ProfilePageState extends State<ProfilePage> {
     super.dispose();
   }
 
-  String _getAgeStringFromDate(DateTime birthDate) {
-    final now = DateTime.now();
-    int years = now.year - birthDate.year;
-    int months = now.month - birthDate.month;
+  DateTime? _parseIso(String? iso) {
+    if (iso == null || iso.isEmpty) return null;
+    try {
+      return DateTime.parse(iso);
+    } catch (_) {
+      return null;
+    }
+  }
 
+  String _ageString(DateTime? birth) {
+    if (birth == null) return '-';
+    final now = DateTime.now();
+    int years = now.year - birth.year;
+    int months = now.month - birth.month;
+    if (now.day < birth.day) months--;
     if (months < 0) {
       years--;
       months += 12;
     }
+    if (years <= 0) return '$months ${months == 1 ? "month" : "months"} old';
+    if (months == 0) return '$years ${years == 1 ? "year" : "years"} old';
+    return '$years ${years == 1 ? "year" : "years"} and $months ${months == 1 ? "month" : "months"} old';
+  }
 
-    if (now.day < birthDate.day) {
-      months--;
-      if (months < 0) {
-        years--;
-        months += 12;
-      }
-    }
+  String _formatDate(DateTime? d) {
+    if (d == null) return '-';
+    final m = d.month.toString().padLeft(2, '0');
+    final day = d.day.toString().padLeft(2, '0');
+    return '${d.year}-$m-$day';
+  }
 
-    if (years == 0) {
-      return '$months ${months == 1 ? "month" : "months"} old';
-    } else if (months == 0) {
-      return '$years ${years == 1 ? "year" : "years"} old';
-    } else {
-      return '$years ${years == 1 ? "year" : "years"} and $months ${months == 1 ? "month" : "months"} old';
-    }
+  String _imageUrl(String? imagePath) {
+    if (imagePath == null || imagePath.isEmpty) return '';
+    return '$baseUrl/uploads/$imagePath';
   }
 
   Future<void> _selectBirthDate() async {
-    final DateTime? picked = await showDatePicker(
+    final picked = await showDatePicker(
       context: context,
       initialDate: selectedBirthDate,
       firstDate: DateTime(2000),
@@ -131,42 +92,75 @@ class _ProfilePageState extends State<ProfilePage> {
     }
   }
 
-  void _toggleEditMode() {
-    setState(() {
-      if (isEditMode) {
-        // Save changes
-        userProfile.dogName = nameController.text;
-        userProfile.birthDate = selectedBirthDate;
-        userProfile.description = descriptionController.text;
+  Future<void> _toggleEditMode() async {
+    if (isEditMode) {
+      final u = user ?? {};
+      final rawId = (u['id'] ?? u['_id']);
+      final id = (rawId ?? '').toString();
+      if (id.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please log in again.')),
+          );
+        }
+        return;
       }
-      isEditMode = !isEditMode;
-    });
-  }
 
-  Future<void> _logout() async {
-    try {
-      await AuthService.logout();
-      if (mounted) {
-        Navigator.pushAndRemoveUntil(
-          context,
-          MaterialPageRoute(builder: (context) => const LoginPage()),
-          (route) => false,
+      final dogName = nameController.text.trim();
+      final description = descriptionController.text.trim();
+      final b = selectedBirthDate;
+      final birthStr =
+          '${b.year}-${b.month.toString().padLeft(2, '0')}-${b.day.toString().padLeft(2, '0')}';
+
+      try {
+        final resp = await UserService.updateProfile(
+          id: id,
+          dogName: dogName,
+          description: description,
+          birthdate: birthStr,
+          // imageFile: <dodasz później>
         );
+
+        setState(() {
+          user = resp['user'] ?? resp;
+          nameController.text = (user?['dogName'] ?? '').toString();
+          descriptionController.text =
+              (user?['description'] ?? '').toString();
+          selectedBirthDate =
+              _parseIso(user?['birthdate']?.toString()) ?? selectedBirthDate;
+          isEditMode = false;
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Profile saved')),
+          );
+        }
+        return;
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Save failed: $e')),
+          );
+        }
+        return;
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Error logging out: $e')));
-      }
+    } else {
+      setState(() => isEditMode = true);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final u = user ?? {};
+    final dogName = (u['dogName'] ?? '').toString();
+    final email = (u['email'] ?? '').toString();
+    final imagePath = (u['imagePath'] ?? '').toString();
+    final birthIso = _parseIso(u['birthdate']?.toString());
+    final imageUrl = _imageUrl(imagePath);
+
     return GestureDetector(
       onVerticalDragEnd: (details) {
-        // Swipe up to go back to discovery page
         if (details.primaryVelocity! < -500) {
           Navigator.popUntil(context, (route) => route.isFirst);
         }
@@ -176,29 +170,25 @@ class _ProfilePageState extends State<ProfilePage> {
         body: SafeArea(
           child: Column(
             children: [
-              // Top Navigation Bar
               Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 12,
-                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // Messages button
                     IconButton(
                       onPressed: () {
                         Navigator.pushReplacement(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => const ChatHistoryPage(),
-                          ),
+                              builder: (context) =>
+                                  const ChatHistoryPage()),
                         );
                       },
                       icon: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Color(persimon),
+                          color: const Color(persimon),
                           shape: BoxShape.circle,
                         ),
                         child: const Icon(
@@ -208,13 +198,12 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                       ),
                     ),
-                    // Edit button
                     IconButton(
                       onPressed: _toggleEditMode,
                       icon: Container(
                         padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
-                          color: Color(persimon),
+                          color: const Color(persimon),
                           shape: BoxShape.circle,
                         ),
                         child: Icon(
@@ -224,26 +213,9 @@ class _ProfilePageState extends State<ProfilePage> {
                         ),
                       ),
                     ),
-                    // Logout button
-                    IconButton(
-                      onPressed: _logout,
-                      icon: Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: Color(persimon),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.logout,
-                          size: 24,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
                   ],
                 ),
               ),
-              // Profile Content
               Expanded(
                 child: SingleChildScrollView(
                   child: Padding(
@@ -251,30 +223,18 @@ class _ProfilePageState extends State<ProfilePage> {
                     child: Column(
                       children: [
                         const SizedBox(height: 20),
-                        // Profile Picture
                         Stack(
                           children: [
                             CircleAvatar(
                               radius: 80,
                               backgroundColor: const Color(ashGrey),
-                              backgroundImage: NetworkImage(
-                                userProfile.imageUrl,
-                              ),
-                              child: ClipOval(
-                                child: Image.network(
-                                  userProfile.imageUrl,
-                                  fit: BoxFit.cover,
-                                  width: 160,
-                                  height: 160,
-                                  errorBuilder: (context, error, stackTrace) {
-                                    return const Icon(
-                                      Icons.pets,
-                                      size: 60,
-                                      color: Colors.white,
-                                    );
-                                  },
-                                ),
-                              ),
+                              backgroundImage: imageUrl.isNotEmpty
+                                  ? NetworkImage(imageUrl)
+                                  : null,
+                              child: imageUrl.isEmpty
+                                  ? const Icon(Icons.pets,
+                                      size: 60, color: Colors.white)
+                                  : null,
                             ),
                             if (isEditMode)
                               Positioned(
@@ -283,7 +243,7 @@ class _ProfilePageState extends State<ProfilePage> {
                                 child: Container(
                                   padding: const EdgeInsets.all(8),
                                   decoration: BoxDecoration(
-                                    color: Color(persimon),
+                                    color: const Color(persimon),
                                     shape: BoxShape.circle,
                                   ),
                                   child: const Icon(
@@ -296,7 +256,6 @@ class _ProfilePageState extends State<ProfilePage> {
                           ],
                         ),
                         const SizedBox(height: 20),
-                        // Dog Name
                         if (isEditMode)
                           Stack(
                             children: [
@@ -305,31 +264,26 @@ class _ProfilePageState extends State<ProfilePage> {
                                 focusNode: nameFocusNode,
                                 textAlign: TextAlign.center,
                                 style: const TextStyle(
-                                  fontSize: 32,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                                    fontSize: 32,
+                                    fontWeight: FontWeight.bold),
                                 decoration: InputDecoration(
                                   border: InputBorder.none,
                                   hintText: 'Dog name',
                                   filled: true,
                                   fillColor: const Color(lightGrey),
                                   contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 8,
-                                  ),
+                                      horizontal: 16, vertical: 8),
                                 ),
                               ),
                               Positioned(
                                 right: 8,
                                 top: 8,
                                 child: GestureDetector(
-                                  onTap: () {
-                                    nameFocusNode.requestFocus();
-                                  },
+                                  onTap: () => nameFocusNode.requestFocus(),
                                   child: Container(
                                     padding: const EdgeInsets.all(4),
                                     decoration: BoxDecoration(
-                                      color: Color(persimon),
+                                      color: const Color(persimon),
                                       shape: BoxShape.circle,
                                     ),
                                     child: const Icon(
@@ -344,14 +298,13 @@ class _ProfilePageState extends State<ProfilePage> {
                           )
                         else
                           Text(
-                            userProfile.dogName,
+                            dogName.isNotEmpty
+                                ? dogName
+                                : (u['dogName'] ?? '').toString(),
                             style: const TextStyle(
-                              fontSize: 32,
-                              fontWeight: FontWeight.bold,
-                            ),
+                                fontSize: 32, fontWeight: FontWeight.bold),
                           ),
                         const SizedBox(height: 8),
-                        // Age
                         if (isEditMode)
                           GestureDetector(
                             onTap: _selectBirthDate,
@@ -359,16 +312,14 @@ class _ProfilePageState extends State<ProfilePage> {
                               children: [
                                 Container(
                                   padding: const EdgeInsets.symmetric(
-                                    horizontal: 16,
-                                    vertical: 12,
-                                  ),
+                                      horizontal: 16, vertical: 12),
                                   decoration: BoxDecoration(
                                     color: const Color(lightGrey),
                                     borderRadius: BorderRadius.circular(4),
                                   ),
                                   child: Center(
                                     child: Text(
-                                      _getAgeStringFromDate(selectedBirthDate),
+                                      _ageString(selectedBirthDate),
                                       style: TextStyle(
                                         fontSize: 18,
                                         color: const Color(darkGrey),
@@ -379,19 +330,16 @@ class _ProfilePageState extends State<ProfilePage> {
                                 Positioned(
                                   right: 8,
                                   top: 8,
-                                  child: GestureDetector(
-                                    onTap: _selectBirthDate,
-                                    child: Container(
-                                      padding: const EdgeInsets.all(4),
-                                      decoration: BoxDecoration(
-                                        color: Color(persimon),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: const Icon(
-                                        Icons.edit,
-                                        color: Colors.white,
-                                        size: 16,
-                                      ),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(4),
+                                    decoration: BoxDecoration(
+                                      color: const Color(persimon),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.edit,
+                                      color: Colors.white,
+                                      size: 16,
                                     ),
                                   ),
                                 ),
@@ -400,14 +348,13 @@ class _ProfilePageState extends State<ProfilePage> {
                           )
                         else
                           Text(
-                            userProfile.getAgeString(),
+                            _ageString(birthIso),
                             style: TextStyle(
                               fontSize: 18,
                               color: const Color(darkGrey),
                             ),
                           ),
                         const SizedBox(height: 40),
-                        // Profile Section Title
                         const Align(
                           alignment: Alignment.centerLeft,
                           child: Text(
@@ -419,7 +366,6 @@ class _ProfilePageState extends State<ProfilePage> {
                           ),
                         ),
                         const SizedBox(height: 16),
-                        // Description
                         if (isEditMode)
                           Stack(
                             children: [
@@ -446,13 +392,12 @@ class _ProfilePageState extends State<ProfilePage> {
                                 right: 8,
                                 bottom: 8,
                                 child: GestureDetector(
-                                  onTap: () {
-                                    descriptionFocusNode.requestFocus();
-                                  },
+                                  onTap: () =>
+                                      descriptionFocusNode.requestFocus(),
                                   child: Container(
                                     padding: const EdgeInsets.all(4),
                                     decoration: BoxDecoration(
-                                      color: Color(persimon),
+                                      color: const Color(persimon),
                                       shape: BoxShape.circle,
                                     ),
                                     child: const Icon(
@@ -469,41 +414,77 @@ class _ProfilePageState extends State<ProfilePage> {
                           Align(
                             alignment: Alignment.centerLeft,
                             child: Text(
-                              userProfile.description,
-                              style: const TextStyle(fontSize: 16, height: 1.5),
+                              (u['description'] ?? '').toString(),
+                              style: const TextStyle(
+                                  fontSize: 16, height: 1.5),
                             ),
                           ),
+                        const SizedBox(height: 24),
+                        _infoTile(
+                          icon: Icons.email_outlined,
+                          label: 'Email',
+                          value: email,
+                        ),
+                        _infoTile(
+                          icon: Icons.cake_outlined,
+                          label: 'Birthdate',
+                          value: _formatDate(birthIso),
+                        ),
                       ],
                     ),
                   ),
                 ),
               ),
-              // Swipe up indicator
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 child: Column(
                   children: [
-                    Icon(
-                      Icons.keyboard_arrow_up,
-                      size: 30,
-                      color: const Color(darkGrey),
-                    ),
-                    Icon(
-                      Icons.keyboard_arrow_up,
-                      size: 30,
-                      color: const Color(ashGrey),
-                    ),
-                    Icon(
-                      Icons.keyboard_arrow_up,
-                      size: 30,
-                      color: const Color(lightGrey),
-                    ),
+                    Icon(Icons.keyboard_arrow_up,
+                        size: 30, color: const Color(darkGrey)),
+                    Icon(Icons.keyboard_arrow_up,
+                        size: 30, color: const Color(ashGrey)),
+                    Icon(Icons.keyboard_arrow_up,
+                        size: 30, color: const Color(lightGrey)),
                   ],
                 ),
               ),
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _infoTile({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(20),
+            blurRadius: 8,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Icon(icon, color: const Color(richBlack)),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              '$label: $value',
+              style: const TextStyle(fontSize: 16),
+            ),
+          ),
+        ],
       ),
     );
   }

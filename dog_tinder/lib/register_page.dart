@@ -21,8 +21,7 @@ class _RegisterPageState extends State<RegisterPage> {
   final TextEditingController dogNameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
-  final TextEditingController birthdateController =
-      TextEditingController(); // readOnly, shows chosen date
+  final TextEditingController birthdateController = TextEditingController(); // readOnly, shows chosen date
   final TextEditingController descriptionController = TextEditingController();
 
   File? dogImageFile;
@@ -31,12 +30,7 @@ class _RegisterPageState extends State<RegisterPage> {
   bool isLoading = false;
 
   Future<void> pickDogImage() async {
-    final XFile? picked = await _picker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1200,
-      maxHeight: 1200,
-      imageQuality: 85,
-    );
+    final XFile? picked = await _picker.pickImage(source: ImageSource.gallery, maxWidth: 1200, maxHeight: 1200, imageQuality: 85);
     if (picked != null) {
       setState(() {
         dogImageFile = File(picked.path);
@@ -60,8 +54,7 @@ class _RegisterPageState extends State<RegisterPage> {
     if (picked != null) {
       setState(() {
         dogBirthdate = picked;
-        birthdateController.text =
-            "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
+        birthdateController.text = "${picked.year}-${picked.month.toString().padLeft(2, '0')}-${picked.day.toString().padLeft(2, '0')}";
       });
     }
   }
@@ -73,26 +66,13 @@ class _RegisterPageState extends State<RegisterPage> {
     final String password = passwordController.text;
     final String description = descriptionController.text.trim();
 
-    if (dogName.isEmpty ||
-        email.isEmpty ||
-        password.isEmpty ||
-        dogBirthdate == null ||
-        description.isEmpty ||
-        dogImageFile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please fill all fields and choose a dog photo.'),
-        ),
-      );
+    if (dogName.isEmpty || email.isEmpty || password.isEmpty || dogBirthdate == null || description.isEmpty || dogImageFile == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please fill all fields and choose a dog photo.')));
       return;
     }
 
     if (!agreeToTerms) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('You must agree to the Terms and Conditions.'),
-        ),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('You must agree to the Terms and Conditions.')));
       return;
     }
 
@@ -101,7 +81,7 @@ class _RegisterPageState extends State<RegisterPage> {
     });
 
     try {
-      await AuthService.register(
+      final resp = await AuthService.register(
         dogName: dogName,
         email: email,
         password: password,
@@ -110,18 +90,16 @@ class _RegisterPageState extends State<RegisterPage> {
         dogImage: dogImageFile!,
       );
 
-      if (!mounted) return;
+      // On success, update globals and navigate
+      loggedIn = true;
+      user = resp['user'] ?? resp;
 
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => const DiscoverPage()),
       );
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(e.toString())));
-      }
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString())));
     } finally {
       if (mounted) {
         setState(() {
@@ -193,10 +171,7 @@ class _RegisterPageState extends State<RegisterPage> {
                               : const CircleAvatar(
                                   radius: 40,
                                   backgroundColor: Color(0xFFEFEFEF),
-                                  child: Icon(
-                                    Icons.add_a_photo_outlined,
-                                    color: Color(richBlack),
-                                  ),
+                                  child: Icon(Icons.add_a_photo_outlined, color: Color(richBlack)),
                                 ),
                         ),
                         const SizedBox(width: 12.0),
@@ -205,9 +180,7 @@ class _RegisterPageState extends State<RegisterPage> {
                             onPressed: pickDogImage,
                             icon: const Icon(Icons.photo_library_outlined),
                             label: const Text('Choose dog photo'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(persimon),
-                            ),
+                            style: ElevatedButton.styleFrom(backgroundColor: const Color(persimon)),
                           ),
                         ),
                       ],

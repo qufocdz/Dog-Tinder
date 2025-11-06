@@ -21,9 +21,7 @@ class _LoginPageState extends State<LoginPage> {
     final String password = passwordController.text;
 
     if (email.isEmpty || password.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter email and password')),
-      );
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Please enter email and password')));
       return;
     }
 
@@ -32,8 +30,10 @@ class _LoginPageState extends State<LoginPage> {
     });
 
     try {
-      await AuthService.login(email: email, password: password);
-      if (!mounted) return;
+      final resp = await AuthService.login(email: email, password: password);
+      // success
+      loggedIn = true;
+      user = resp['user'] ?? resp;
 
       Navigator.pushReplacement(
         context,
@@ -46,20 +46,15 @@ class _LoginPageState extends State<LoginPage> {
         friendly = 'Nieprawidłowy email lub hasło.';
       } else if (msg.contains('Missing fields')) {
         friendly = 'Podaj email i hasło.';
-      } else if (msg.contains('Session expired')) {
-        friendly = 'Sesja wygasła. Zaloguj się ponownie.';
       } else if (msg.contains('Login failed:')) {
         // show server-provided message if any
         final parts = msg.split(':');
         if (parts.length > 1) friendly = parts.sublist(1).join(':').trim();
       }
 
-      if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(friendly)));
-      }
-    } finally {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(friendly)));
+    }
+    finally {
       if (mounted) {
         setState(() {
           isLoading = false;
@@ -127,14 +122,7 @@ class _LoginPageState extends State<LoginPage> {
                 padding: const EdgeInsets.symmetric(vertical: 16.0),
               ),
               child: isLoading
-                  ? const SizedBox(
-                      height: 20,
-                      width: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2.0,
-                        color: Colors.white,
-                      ),
-                    )
+                  ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2.0, color: Colors.white))
                   : const Text("Log In"),
             ),
             const SizedBox(height: 16.0),

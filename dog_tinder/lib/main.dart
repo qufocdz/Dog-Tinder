@@ -1,62 +1,71 @@
 import 'package:flutter/material.dart';
-import 'package:dog_tinder/login_page.dart';
-import 'package:dog_tinder/discover_page.dart';
-import 'package:dog_tinder/globals.dart';
 
-Future<void> main() async {
+import 'globals.dart';
+import 'login_page.dart';
+import 'register_page.dart';
+import 'discover_page.dart';
+import 'profile_page.dart';
+import 'chat_history_page.dart';
+import 'chat_page.dart';
+
+final navigatorKey = GlobalKey<NavigatorState>();
+
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }
 
-class MyApp extends StatefulWidget {
+class MyApp extends StatelessWidget {
   const MyApp({super.key});
-
-  @override
-  State<MyApp> createState() => _MyAppState();
-}
-
-class _MyAppState extends State<MyApp> {
-  bool _isCheckingAuth = true;
-  bool _isLoggedIn = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _checkAuthStatus();
-  }
-
-  Future<void> _checkAuthStatus() async {
-    try {
-      final isLoggedIn = await TokenManager.isLoggedIn();
-      if (isLoggedIn) {
-        // Try to get user profile to verify token is still valid
-        final token = await TokenManager.getToken();
-        if (token != null && token.isNotEmpty) {
-          setState(() {
-            _isLoggedIn = true;
-            loggedIn = true;
-          });
-        }
-      }
-    } catch (e) {
-      // If there's an error, clear any stored auth data
-      await TokenManager.clearToken();
-    } finally {
-      setState(() {
-        _isCheckingAuth = false;
-      });
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: _isCheckingAuth
-          ? const Scaffold(body: Center(child: CircularProgressIndicator()))
-          : _isLoggedIn
-          ? const DiscoverPage()
-          : const LoginPage(),
+      navigatorKey: navigatorKey,
+      title: 'Dog Tinder',
+      theme: ThemeData(
+        primaryColor: const Color(persimon),
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(persimon)),
+        scaffoldBackgroundColor: const Color(creamWhite),
+        useMaterial3: false,
+      ),
+      home: const _RootGate(),
+      routes: {
+        '/login': (_) => const LoginPage(),
+        '/register': (_) => const RegisterPage(),
+        '/discover': (_) => const DiscoverPage(),
+        '/profile': (_) => const ProfilePage(),
+        '/chats': (_) => const ChatHistoryPage(),
+      },
+      onGenerateRoute: (settings) {
+        if (settings.name == '/chat') {
+          final args = (settings.arguments as Map<String, dynamic>?) ?? {};
+          final dogName = (args['dogName'] as String?) ?? '';
+          final dogImageUrl = (args['dogImageUrl'] as String?) ?? '';
+          return MaterialPageRoute(
+            builder: (_) => ChatPage(
+              dogName: dogName,
+              dogImageUrl: dogImageUrl,
+            ),
+            settings: settings,
+          );
+        }
+        return null;
+      },
     );
+  }
+}
+
+class _RootGate extends StatelessWidget {
+  const _RootGate({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    // Ekran startowy zależnie od tego czy mamy zalogowanego usera
+    if (loggedIn && user != null) {
+      return const DiscoverPage();
+    }
+    return const LoginPage();
   }
 }
