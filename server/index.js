@@ -11,6 +11,7 @@ const path = require('path');
 const app = express();
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 const UPLOAD_DIR = path.join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
@@ -24,12 +25,11 @@ const storage = multer.diskStorage({
     cb(null, unique + '-' + file.originalname.replace(/[^a-zA-Z0-9.\-]/g, '_'));
   }
 });
-
 const upload = multer({ storage });
 
 // JWT utility functions
 const generateToken = (userId) => {
-  return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
+  return jwt.sign({ userId }, process.env.JWT_SECRET || 'fallback_secret_key', { expiresIn: '7d' });
 };
 
 const verifyToken = (req, res, next) => {
@@ -40,7 +40,7 @@ const verifyToken = (req, res, next) => {
     return res.status(401).json({ error: 'Access token required' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+  jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_key', (err, decoded) => {
     if (err) {
       return res.status(403).json({ error: 'Invalid or expired token' });
     }
@@ -49,14 +49,13 @@ const verifyToken = (req, res, next) => {
   });
 };
 
-const mongoUri = process.env.MONGODB_URI || 'mongodb://localhost:27017/dog_tinder_dev';
+const mongoUri = process.env.MONGODB_URI;
 console.log('Attempting to connect to MongoDB...');
-
 mongoose.connect(mongoUri, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
-  serverSelectionTimeoutMS: 5000, // Timeout after 5s instead of 30s
-  connectTimeoutMS: 10000, // Give up initial connection after 10 seconds
+  serverSelectionTimeoutMS: 5000,
+  connectTimeoutMS: 10000,
 })
 .then(() => console.log('Successfully connected to MongoDB'))
 .catch(err => {
@@ -65,7 +64,7 @@ mongoose.connect(mongoUri, {
     code: err.code,
     reason: err.reason
   });
-  process.exit(1); // Exit if we can't connect to the database
+  process.exit(1);
 });
 
 const userSchema = new mongoose.Schema({
@@ -76,29 +75,48 @@ const userSchema = new mongoose.Schema({
   description: String,
   imagePath: String,
 }, { timestamps: true });
-
 const User = mongoose.model('User', userSchema);
+
+const { Schema, Types } = mongoose;
+
+const swipeSchema = new Schema({
+  from: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  to:   { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  action: { type: String, enum: ['like', 'pass'], required: true },
+}, { timestamps: true });
+swipeSchema.index({ from: 1, to: 1 }, { unique: true });
+const Swipe = mongoose.model('Swipe', swipeSchema);
+
+const matchSchema = new Schema({
+  users: [{ type: Schema.Types.ObjectId, ref: 'User', required: true }],
+  pairKey: { type: String, unique: true, index: true },
+}, { timestamps: true });
+matchSchema.pre('validate', function(next) {
+  if (this.users && this.users.length === 2) {
+    const [a, b] = this.users.map(u => u.toString()).sort();
+    this.users = [a, b];
+    this.pairKey = `${a}_${b}`;
+  }
+  next();
+});
+const Match = mongoose.model('Match', matchSchema);
+
+const messageSchema = new Schema({
+  match: { type: Schema.Types.ObjectId, ref: 'Match', required: true, index: true },
+  from:  { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  text:  { type: String, required: true },
+}, { timestamps: true });
+messageSchema.index({ match: 1, createdAt: 1 });
+const Message = mongoose.model('Message', messageSchema);
 
 app.post('/api/register', upload.single('dogImage'), async (req, res) => {
   try {
-    console.log('Received registration request:', {
-      body: req.body,
-      file: req.file ? { 
-        filename: req.file.filename,
-        size: req.file.size,
-        mimetype: req.file.mimetype
-      } : null
-    });
-
     const { dogName, email, password, birthdate, description } = req.body;
     if (!dogName || !email || !password || !birthdate || !description || !req.file) {
-      console.log('Missing fields:', { dogName, email, birthdate, description, hasFile: !!req.file });
       return res.status(400).json({ error: 'Missing fields' });
     }
-
     const existing = await User.findOne({ email });
     if (existing) return res.status(409).json({ error: 'Email already registered' });
-
     const passwordHash = await bcrypt.hash(password, 10);
     const user = new User({
       dogName,
@@ -108,14 +126,6 @@ app.post('/api/register', upload.single('dogImage'), async (req, res) => {
       description,
       imagePath: req.file.filename,
     });
-
-    console.log('Attempting to save user:', {
-      dogName: user.dogName,
-      email: user.email,
-      birthdate: user.birthdate,
-      imagePath: user.imagePath
-    });
-
     await user.save();
 
     // Generate JWT token
@@ -134,23 +144,16 @@ app.post('/api/register', upload.single('dogImage'), async (req, res) => {
       } 
     });
   } catch (err) {
-    console.error('Registration error details:', {
-      message: err.message,
-      code: err.code,
-      stack: err.stack
-    });
     return res.status(500).json({ error: err.message || 'Server error' });
   }
 });
 
-app.post('/api/login', express.urlencoded({ extended: true }), async (req, res) => {
+app.post('/api/login', async (req, res) => {
   try {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Missing fields' });
-
     const user = await User.findOne({ email });
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
-
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ error: 'Invalid credentials' });
 
@@ -170,8 +173,151 @@ app.post('/api/login', express.urlencoded({ extended: true }), async (req, res) 
       } 
     });
   } catch (err) {
-    console.error(err);
     return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/swipe', async (req, res) => {
+  try {
+    const { fromUserId, toUserId, action } = req.body;
+    if (!fromUserId || !toUserId || !['like','pass'].includes(action)) {
+      return res.status(400).json({ error: 'Bad payload' });
+    }
+    if (fromUserId === toUserId) {
+      return res.status(400).json({ error: 'Cannot swipe yourself' });
+    }
+    await Swipe.findOneAndUpdate(
+      { from: fromUserId, to: toUserId },
+      { $set: { action } },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    let matched = false;
+    let matchId = null;
+    if (action === 'like') {
+      const reciprocal = await Swipe.findOne({ from: toUserId, to: fromUserId, action: 'like' });
+      if (reciprocal) {
+        const [a, b] = [fromUserId, toUserId].sort();
+        const pairKey = `${a}_${b}`;
+        const match = await Match.findOneAndUpdate(
+          { pairKey },
+          { $setOnInsert: { users: [a, b] } },
+          { upsert: true, new: true }
+        );
+        matched = true;
+        matchId = match._id;
+      }
+    }
+    return res.json({ ok: true, matched, matchId });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/api/chats', async (req, res) => {
+  try {
+    const userId = req.query.userId;
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+    const matches = await Match.find({ users: userId }).populate('users', 'dogName imagePath');
+    const matchIds = matches.map(m => m._id);
+    const last = await Message.aggregate([
+      { $match: { match: { $in: matchIds } } },
+      { $sort: { createdAt: -1 } },
+      { $group: { _id: '$match', lastMessage: { $first: '$text' }, lastAt: { $first: '$createdAt' } } }
+    ]);
+    const lastMap = new Map(last.map(r => [r._id.toString(), r]));
+    const data = matches.map(m => {
+      const other = m.users.find(u => u._id.toString() !== userId);
+      const lm = lastMap.get(m._id.toString());
+      return {
+        matchId: m._id,
+        peer: {
+          id: other?._id,
+          dogName: other?.dogName,
+          imageUrl: other?.imagePath ? `/uploads/${other.imagePath}` : null
+        },
+        lastMessage: lm?.lastMessage ?? null,
+        lastAt: lm?.lastAt ?? m.createdAt,
+      };
+    });
+    res.json({ ok: true, chats: data });
+  } catch (e) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/api/messages', async (req, res) => {
+  try {
+    const { matchId } = req.query;
+    if (!matchId) return res.status(400).json({ error: 'matchId required' });
+    const msgs = await Message.find({ match: matchId }).sort({ createdAt: 1 });
+    res.json({ ok: true, messages: msgs });
+  } catch (e) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.post('/api/messages', async (req, res) => {
+  try {
+    const { matchId, fromUserId, text } = req.body;
+    if (!matchId || !fromUserId || !text) return res.status(400).json({ error: 'Bad payload' });
+    const match = await Match.findById(matchId);
+    if (!match) return res.status(404).json({ error: 'Match not found' });
+    const isMember = match.users.some(u => u.toString() === fromUserId);
+    if (!isMember) return res.status(403).json({ error: 'Not a participant' });
+    const msg = await Message.create({ match: matchId, from: fromUserId, text });
+    res.json({ ok: true, message: msg });
+  } catch (e) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/api/discover', async (req, res) => {
+  try {
+    const me = req.query.userId;
+    if (!me) return res.status(400).json({ error: 'userId required' });
+    const swiped = await Swipe.find({ from: me }).distinct('to');
+    const exclude = [me, ...swiped];
+    const users = await User.find({ _id: { $nin: exclude } }).select('dogName description imagePath');
+    const out = users.map(u => ({
+      id: u._id,
+      dogName: u.dogName,
+      description: u.description,
+      imageUrl: u.imagePath ? `/uploads/${u.imagePath}` : null
+    }));
+    res.json({ ok: true, users: out });
+  } catch (e) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
+app.put('/api/user/:id', upload.single('dogImage'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { dogName, description, birthdate } = req.body;
+
+    const update = {};
+    if (dogName !== undefined) update.dogName = dogName;
+    if (description !== undefined) update.description = description;
+    if (birthdate !== undefined) update.birthdate = new Date(birthdate);
+    if (req.file) update.imagePath = req.file.filename;
+
+    const userDoc = await User.findByIdAndUpdate(id, { $set: update }, { new: true });
+    if (!userDoc) return res.status(404).json({ error: 'Not found' });
+
+    res.json({
+      success: true,
+      user: {
+        id: userDoc._id,
+        dogName: userDoc.dogName,
+        email: userDoc.email,
+        birthdate: userDoc.birthdate,
+        description: userDoc.description,
+        imagePath: userDoc.imagePath,
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message || 'Server error' });
   }
 });
 
