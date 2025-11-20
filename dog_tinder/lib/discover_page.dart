@@ -39,7 +39,75 @@ class _DiscoverPageState extends State<DiscoverPage> {
   @override
   void initState() {
     super.initState();
+    _checkUnseenMatches();
     _loadCandidates();
+  }
+
+  Future<void> _checkUnseenMatches() async {
+    try {
+      final u = user ?? {};
+      final me = ((u['id'] ?? u['_id']) ?? '').toString();
+      if (me.isEmpty) return;
+
+      final uri = Uri.parse('$baseUrl/api/matches/unseen?userId=$me');
+      final resp = await http.get(uri);
+
+      if (resp.statusCode >= 200 && resp.statusCode < 300) {
+        final data = json.decode(resp.body) as Map<String, dynamic>;
+        final matches = (data['matches'] as List?) ?? [];
+
+        if (matches.isNotEmpty && mounted) {
+          // Show popups for each unseen match with delay
+          for (int i = 0; i < matches.length; i++) {
+            await Future.delayed(
+              Duration(milliseconds: i * 500),
+            ); // Delay between popups
+            if (!mounted) return;
+
+            final matchData = Map<String, dynamic>.from(matches[i] as Map);
+            final matchId = matchData['matchId'].toString();
+            final userData = Map<String, dynamic>.from(
+              matchData['user'] as Map,
+            );
+
+            final dogProfile = DogProfile(
+              id: userData['id'].toString(),
+              name: userData['dogName'].toString(),
+              age: _calculateAge(userData['birthdate']?.toString()),
+              description: userData['description']?.toString() ?? '',
+              imageUrl: _imageUrlFrom(userData),
+            );
+
+            _showMatchDialog(dogProfile, matchId);
+          }
+        }
+      }
+    } catch (e) {
+      // Silently fail - unseen matches are not critical
+      print('Error checking unseen matches: $e');
+    }
+  }
+
+  Future<void> _markMatchAsSeen(String matchId) async {
+    try {
+      final token = await TokenManager.getToken();
+      if (token == null) return;
+
+      final u = user ?? {};
+      final me = ((u['id'] ?? u['_id']) ?? '').toString();
+      if (me.isEmpty) return;
+
+      await http.post(
+        Uri.parse('$baseUrl/api/matches/$matchId/seen'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'userId': me}),
+      );
+    } catch (e) {
+      print('Error marking match as seen: $e');
+    }
   }
 
   String _imageUrlFrom(Map<String, dynamic> e) {
@@ -61,6 +129,25 @@ class _DiscoverPageState extends State<DiscoverPage> {
       return direct;
     }
     return '';
+  }
+
+  int _calculateAge(String? birthdateStr) {
+    if (birthdateStr == null || birthdateStr.isEmpty) {
+      return 0;
+    }
+
+    try {
+      final birthdate = DateTime.parse(birthdateStr);
+      final now = DateTime.now();
+      int age = now.year - birthdate.year;
+      if (now.month < birthdate.month ||
+          (now.month == birthdate.month && now.day < birthdate.day)) {
+        age--;
+      }
+      return age;
+    } catch (e) {
+      return 0;
+    }
   }
 
   Future<void> _loadCandidates() async {
@@ -88,11 +175,13 @@ class _DiscoverPageState extends State<DiscoverPage> {
           final name = (e['dogName'] ?? e['name'] ?? 'Doggo').toString();
           final desc = (e['description'] ?? '').toString();
           final img = _imageUrlFrom(e);
+          final birthdateStr = (e['birthdate'] ?? '').toString();
+          final age = _calculateAge(birthdateStr);
 
           return DogProfile(
             id: id,
             name: name,
-            age: 3, // jeśli backend nie zwraca wieku
+            age: age > 0 ? age : 3, // fallback to 3 if no birthdate
             description: desc,
             imageUrl: img.isEmpty
                 ? 'https://picsum.photos/seed/$id/800/600'
@@ -176,10 +265,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
       if (res['matched'] == true) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("It's a match with ${dog.name}!")),
-        );
-        // tu możesz przejść od razu do ekranu czatu
+        _showMatchDialog(dog);
       }
     } catch (e) {
       if (!mounted) return;
@@ -190,6 +276,155 @@ class _DiscoverPageState extends State<DiscoverPage> {
         currentIndex++;
       });
     }
+  }
+
+  void _showMatchDialog(DogProfile dog, [String? matchId]) async {
+    // If matchId is provided, mark it as seen when dialog closes
+    if (matchId != null) {
+      _markMatchAsSeen(matchId);
+    }
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: const Color(creamWhite),
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withAlpha(51),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Match icon with animation
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(persimon).withAlpha(26),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.favorite,
+                    color: Color(persimon),
+                    size: 60,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // It's a Match! text
+                const Text(
+                  "It's a Match!",
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: Color(richBlack),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Matched with name
+                Text(
+                  "You and ${dog.name} liked each other!",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 16, color: Color(darkGrey)),
+                ),
+                const SizedBox(height: 32),
+                // Dog image
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    height: 200,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: const Color(lightGrey),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: dog.imageUrl.isNotEmpty
+                        ? Image.network(
+                            dog.imageUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return const Center(
+                                child: Icon(
+                                  Icons.pets,
+                                  size: 60,
+                                  color: Colors.white,
+                                ),
+                              );
+                            },
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return const Center(
+                                child: CircularProgressIndicator(
+                                  color: Color(persimon),
+                                ),
+                              );
+                            },
+                          )
+                        : const Center(
+                            child: Icon(
+                              Icons.pets,
+                              size: 60,
+                              color: Colors.white,
+                            ),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                // Action buttons
+                Row(
+                  children: [
+                    // Send Message button
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          // TODO: Navigate to chat - teammate will implement
+                          Navigator.pop(context);
+                        },
+                        icon: const Icon(Icons.chat_bubble),
+                        label: const Text('Send Message'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(persimon),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                // Keep Swiping button
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(context);
+                  },
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(darkGrey),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text(
+                    'Keep Swiping',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override

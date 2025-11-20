@@ -13,19 +13,13 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-const UPLOAD_DIR = path.join(__dirname, 'uploads');
-if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
-
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    cb(null, UPLOAD_DIR);
-  },
-  filename: function (req, file, cb) {
-    const unique = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    cb(null, unique + '-' + file.originalname.replace(/[^a-zA-Z0-9.\-]/g, '_'));
+// Use memory storage for multer - files will be stored in req.file.buffer
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB limit
   }
 });
-const upload = multer({ storage });
 
 // JWT utility functions
 const generateToken = (userId) => {
@@ -90,6 +84,7 @@ const Swipe = mongoose.model('Swipe', swipeSchema);
 const matchSchema = new Schema({
   users: [{ type: Schema.Types.ObjectId, ref: 'User', required: true }],
   pairKey: { type: String, unique: true, index: true },
+  seenBy: [{ type: Schema.Types.ObjectId, ref: 'User' }], // Track which users have seen this match
 }, { timestamps: true });
 matchSchema.pre('validate', function(next) {
   if (this.users && this.users.length === 2) {
@@ -124,21 +119,8 @@ app.post('/api/register', upload.single('dogImage'), async (req, res) => {
       passwordHash,
       birthdate: new Date(birthdate),
       description,
+      imageData: req.file.buffer // Store image buffer directly from memory
     });
-
-    // Read uploaded file into buffer and store as binary in DB
-    try {
-      let fileBuffer = null;
-      if (req.file && req.file.buffer && Buffer.isBuffer(req.file.buffer)) {
-        fileBuffer = req.file.buffer;
-      } else if (req.file && req.file.path) {
-        fileBuffer = fs.readFileSync(req.file.path);
-        try { fs.unlinkSync(req.file.path); } catch (e) { /* ignore */ }
-      }
-      if (fileBuffer) user.imageData = fileBuffer;
-    } catch (e) {
-      console.error('Failed to read uploaded file into buffer:', e.message || e);
-    }
 
     await user.save();
 
@@ -214,7 +196,7 @@ app.post('/api/swipe', async (req, res) => {
         const pairKey = `${a}_${b}`;
         const match = await Match.findOneAndUpdate(
           { pairKey },
-          { $setOnInsert: { users: [a, b] } },
+          { $setOnInsert: { users: [a, b], seenBy: [fromUserId] } },
           { upsert: true, new: true }
         );
         matched = true;
@@ -291,15 +273,75 @@ app.get('/api/discover', async (req, res) => {
     if (!me) return res.status(400).json({ error: 'userId required' });
     const swiped = await Swipe.find({ from: me }).distinct('to');
     const exclude = [me, ...swiped];
-    const users = await User.find({ _id: { $nin: exclude } }).select('dogName description');
+    const users = await User.find({ _id: { $nin: exclude } }).select('dogName description birthdate');
     const out = users.map(u => ({
       id: u._id,
       dogName: u.dogName,
       description: u.description,
+      birthdate: u.birthdate,
       imageUrlDb: `/api/user/${u._id}/photo`
     }));
     res.json({ ok: true, users: out });
   } catch (e) {
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Get unseen matches for a user
+app.get('/api/matches/unseen', async (req, res) => {
+  try {
+    const userId = req.query.userId;
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+
+    // Find all matches where the user is involved but hasn't seen yet
+    const matches = await Match.find({
+      users: userId,
+      seenBy: { $ne: userId }
+    }).populate('users', 'dogName description birthdate');
+
+    const unseenMatches = matches.map(match => {
+      // Get the other user (not the current user)
+      const otherUser = match.users.find(u => u._id.toString() !== userId.toString());
+      return {
+        matchId: match._id,
+        user: {
+          id: otherUser._id,
+          dogName: otherUser.dogName,
+          description: otherUser.description,
+          birthdate: otherUser.birthdate,
+          imageUrlDb: `/api/user/${otherUser._id}/photo`
+        },
+        createdAt: match.createdAt
+      };
+    });
+
+    res.json({ ok: true, matches: unseenMatches });
+  } catch (e) {
+    console.error('Error fetching unseen matches:', e);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Mark a match as seen by a user
+app.post('/api/matches/:matchId/seen', async (req, res) => {
+  try {
+    const { matchId } = req.params;
+    const { userId } = req.body;
+
+    if (!userId) return res.status(400).json({ error: 'userId required' });
+
+    const match = await Match.findById(matchId);
+    if (!match) return res.status(404).json({ error: 'Match not found' });
+
+    // Add userId to seenBy array if not already there
+    if (!match.seenBy.includes(userId)) {
+      match.seenBy.push(userId);
+      await match.save();
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('Error marking match as seen:', e);
     res.status(500).json({ error: 'Server error' });
   }
 });
@@ -314,18 +356,8 @@ app.put('/api/user/:id', upload.single('dogImage'), async (req, res) => {
     if (dogName !== undefined) update.dogName = dogName;
     if (description !== undefined) update.description = description;
     if (birthdate !== undefined) update.birthdate = new Date(birthdate);
-    if (req.file) {
-      try {
-        if (req.file.buffer && Buffer.isBuffer(req.file.buffer)) {
-          update.imageData = req.file.buffer;
-        } else if (req.file.path) {
-          const buf = fs.readFileSync(req.file.path);
-          update.imageData = buf;
-          try { fs.unlinkSync(req.file.path); } catch (e) { /* ignore */ }
-        }
-      } catch (e) {
-        console.error('Failed to read uploaded file for user update:', e.message || e);
-      }
+    if (req.file && req.file.buffer) {
+      update.imageData = req.file.buffer; // Store image buffer directly from memory
     }
 
     const userDoc = await User.findByIdAndUpdate(id, { $set: update }, { new: true });
@@ -370,8 +402,6 @@ app.get('/api/user/:id/photo', async (req, res) => {
     res.status(500).send('Server error');
   }
 });
-
-app.use('/uploads', express.static(UPLOAD_DIR));
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => console.log('Server listening on port', port));
