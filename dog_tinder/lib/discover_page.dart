@@ -43,6 +43,15 @@ class _DiscoverPageState extends State<DiscoverPage> {
   }
 
   String _imageUrlFrom(Map<String, dynamic> e) {
+    // Try new imageUrlDb endpoint first
+    final imageUrlDb = (e['imageUrlDb'] ?? '').toString();
+    if (imageUrlDb.isNotEmpty && imageUrlDb.startsWith('/')) {
+      return '$baseUrl$imageUrlDb';
+    }
+    if (imageUrlDb.isNotEmpty && imageUrlDb.startsWith('http')) {
+      return imageUrlDb;
+    }
+    // Fallback to old imagePath for compatibility
     final imagePath = (e['imagePath'] ?? '').toString();
     if (imagePath.isNotEmpty) {
       return '$baseUrl/uploads/$imagePath';

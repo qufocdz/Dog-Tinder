@@ -75,9 +75,19 @@ class _ProfilePageState extends State<ProfilePage> {
     return '${d.year}-$m-$day';
   }
 
-  String _imageUrl(String? imagePath) {
-    if (imagePath == null || imagePath.isEmpty) return '';
-    return '$baseUrl/uploads/$imagePath';
+  String _imageUrl(Map<String, dynamic> userData) {
+    // Try new imageUrlDb endpoint first
+    final imageUrlDb = (userData['imageUrlDb'] ?? '').toString();
+    if (imageUrlDb.isNotEmpty && imageUrlDb.startsWith('/')) {
+      return '$baseUrl$imageUrlDb';
+    }
+    if (imageUrlDb.isNotEmpty && imageUrlDb.startsWith('http')) {
+      return imageUrlDb;
+    }
+    // Fallback to old imagePath for compatibility
+    final imagePath = (userData['imagePath'] ?? '').toString();
+    if (imagePath.isNotEmpty) return '$baseUrl/uploads/$imagePath';
+    return '';
   }
 
   Future<void> _selectBirthDate() async {
@@ -157,9 +167,8 @@ class _ProfilePageState extends State<ProfilePage> {
     final u = user ?? {};
     final dogName = (u['dogName'] ?? '').toString();
     final email = (u['email'] ?? '').toString();
-    final imagePath = (u['imagePath'] ?? '').toString();
     final birthIso = _parseIso(u['birthdate']?.toString());
-    final imageUrl = _imageUrl(imagePath);
+    final imageUrl = _imageUrl(u);
 
     return GestureDetector(
       onVerticalDragEnd: (details) {

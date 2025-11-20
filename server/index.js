@@ -73,7 +73,7 @@ const userSchema = new mongoose.Schema({
   passwordHash: String,
   birthdate: Date,
   description: String,
-  imagePath: String,
+  imageData: Buffer,
 }, { timestamps: true });
 const User = mongoose.model('User', userSchema);
 
@@ -124,8 +124,22 @@ app.post('/api/register', upload.single('dogImage'), async (req, res) => {
       passwordHash,
       birthdate: new Date(birthdate),
       description,
-      imagePath: req.file.filename,
     });
+
+    // Read uploaded file into buffer and store as binary in DB
+    try {
+      let fileBuffer = null;
+      if (req.file && req.file.buffer && Buffer.isBuffer(req.file.buffer)) {
+        fileBuffer = req.file.buffer;
+      } else if (req.file && req.file.path) {
+        fileBuffer = fs.readFileSync(req.file.path);
+        try { fs.unlinkSync(req.file.path); } catch (e) { /* ignore */ }
+      }
+      if (fileBuffer) user.imageData = fileBuffer;
+    } catch (e) {
+      console.error('Failed to read uploaded file into buffer:', e.message || e);
+    }
+
     await user.save();
 
     // Generate JWT token
@@ -140,7 +154,7 @@ app.post('/api/register', upload.single('dogImage'), async (req, res) => {
         email: user.email, 
         birthdate: user.birthdate, 
         description: user.description, 
-        imagePath: user.imagePath 
+        imageUrlDb: `/api/user/${user._id}/photo`
       } 
     });
   } catch (err) {
@@ -169,7 +183,7 @@ app.post('/api/login', async (req, res) => {
         email: user.email, 
         birthdate: user.birthdate, 
         description: user.description, 
-        imagePath: user.imagePath 
+        imageUrlDb: `/api/user/${user._id}/photo`
       } 
     });
   } catch (err) {
@@ -217,7 +231,7 @@ app.get('/api/chats', async (req, res) => {
   try {
     const userId = req.query.userId;
     if (!userId) return res.status(400).json({ error: 'userId required' });
-    const matches = await Match.find({ users: userId }).populate('users', 'dogName imagePath');
+    const matches = await Match.find({ users: userId }).populate('users', 'dogName');
     const matchIds = matches.map(m => m._id);
     const last = await Message.aggregate([
       { $match: { match: { $in: matchIds } } },
@@ -233,7 +247,7 @@ app.get('/api/chats', async (req, res) => {
         peer: {
           id: other?._id,
           dogName: other?.dogName,
-          imageUrl: other?.imagePath ? `/uploads/${other.imagePath}` : null
+          imageUrlDb: other?._id ? `/api/user/${other._id}/photo` : null
         },
         lastMessage: lm?.lastMessage ?? null,
         lastAt: lm?.lastAt ?? m.createdAt,
@@ -277,12 +291,12 @@ app.get('/api/discover', async (req, res) => {
     if (!me) return res.status(400).json({ error: 'userId required' });
     const swiped = await Swipe.find({ from: me }).distinct('to');
     const exclude = [me, ...swiped];
-    const users = await User.find({ _id: { $nin: exclude } }).select('dogName description imagePath');
+    const users = await User.find({ _id: { $nin: exclude } }).select('dogName description');
     const out = users.map(u => ({
       id: u._id,
       dogName: u.dogName,
       description: u.description,
-      imageUrl: u.imagePath ? `/uploads/${u.imagePath}` : null
+      imageUrlDb: `/api/user/${u._id}/photo`
     }));
     res.json({ ok: true, users: out });
   } catch (e) {
@@ -300,7 +314,19 @@ app.put('/api/user/:id', upload.single('dogImage'), async (req, res) => {
     if (dogName !== undefined) update.dogName = dogName;
     if (description !== undefined) update.description = description;
     if (birthdate !== undefined) update.birthdate = new Date(birthdate);
-    if (req.file) update.imagePath = req.file.filename;
+    if (req.file) {
+      try {
+        if (req.file.buffer && Buffer.isBuffer(req.file.buffer)) {
+          update.imageData = req.file.buffer;
+        } else if (req.file.path) {
+          const buf = fs.readFileSync(req.file.path);
+          update.imageData = buf;
+          try { fs.unlinkSync(req.file.path); } catch (e) { /* ignore */ }
+        }
+      } catch (e) {
+        console.error('Failed to read uploaded file for user update:', e.message || e);
+      }
+    }
 
     const userDoc = await User.findByIdAndUpdate(id, { $set: update }, { new: true });
     if (!userDoc) return res.status(404).json({ error: 'Not found' });
@@ -313,11 +339,35 @@ app.put('/api/user/:id', upload.single('dogImage'), async (req, res) => {
         email: userDoc.email,
         birthdate: userDoc.birthdate,
         description: userDoc.description,
-        imagePath: userDoc.imagePath,
+        imageUrlDb: `/api/user/${userDoc._id}/photo`,
       }
     });
   } catch (e) {
     res.status(500).json({ error: e.message || 'Server error' });
+  }
+});
+
+// Serve user photo from DB as binary
+app.get('/api/user/:id/photo', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = await User.findById(id).select('imageData');
+    if (!user || !user.imageData) return res.status(404).send('Not found');
+    
+    // Detect mime type from buffer using file-type
+    try {
+      const FileType = require('file-type');
+      const ft = await FileType.fromBuffer(user.imageData);
+      const mime = ft?.mime || 'image/jpeg';
+      res.contentType(mime);
+    } catch (e) {
+      res.contentType('image/jpeg'); // default fallback
+    }
+    
+    res.send(user.imageData);
+  } catch (e) {
+    console.error('Failed to serve user photo:', e.message || e);
+    res.status(500).send('Server error');
   }
 });
 
