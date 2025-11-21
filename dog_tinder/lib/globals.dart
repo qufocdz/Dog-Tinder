@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // Global variables
@@ -25,10 +26,26 @@ class TokenManager {
     authToken = token;
   }
 
+  /// Zapisujemy usera jako JSON i aktualizujemy globalną zmienną `user`
   static Future<void> saveUser(Map<String, dynamic> userData) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setString(_userKey, userData.toString());
+    await prefs.setString(_userKey, jsonEncode(userData));
     user = userData;
+  }
+
+  /// Wczytujemy usera z pamięci (SharedPreferences) do globalnej zmiennej
+  static Future<Map<String, dynamic>?> loadUser() async {
+    final prefs = await SharedPreferences.getInstance();
+    final stored = prefs.getString(_userKey);
+    if (stored == null) return null;
+
+    try {
+      final map = jsonDecode(stored) as Map<String, dynamic>;
+      user = map;
+      return map;
+    } catch (_) {
+      return null;
+    }
   }
 
   static Future<String?> getToken() async {
@@ -49,6 +66,8 @@ class TokenManager {
   static Future<bool> isLoggedIn() async {
     final token = await getToken();
     if (token != null && token.isNotEmpty) {
+      // przy okazji spróbujmy wczytać usera
+      await loadUser();
       loggedIn = true;
       return true;
     }

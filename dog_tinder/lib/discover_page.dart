@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'globals.dart';
 import 'chat_history_page.dart';
 import 'profile_page.dart';
+import 'chat_page.dart';
 import 'services/chat_service.dart'; // baseUrl + ChatService
 
 class DogProfile {
@@ -183,9 +184,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
             name: name,
             age: age > 0 ? age : 3, // fallback to 3 if no birthdate
             description: desc,
-            imageUrl: img.isEmpty
-                ? 'https://picsum.photos/seed/$id/800/600'
-                : img,
+            imageUrl:
+            img.isEmpty ? 'https://picsum.photos/seed/$id/800/600' : img,
           );
         }).toList();
 
@@ -265,7 +265,9 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
       if (res['matched'] == true) {
         if (!mounted) return;
-        _showMatchDialog(dog);
+
+        final matchId = res['matchId']?.toString();
+        _showMatchDialog(dog, matchId);
       }
     } catch (e) {
       if (!mounted) return;
@@ -278,16 +280,19 @@ class _DiscoverPageState extends State<DiscoverPage> {
     }
   }
 
-  void _showMatchDialog(DogProfile dog, [String? matchId]) async {
-    // If matchId is provided, mark it as seen when dialog closes
+  void _showMatchDialog(DogProfile dog, [String? matchId]) {
+    // zachowujemy context ekranu Discover
+    final rootContext = context;
+
+    // jeśli mamy matchId z /matches/unseen, zaznaczamy jako "seen"
     if (matchId != null) {
       _markMatchAsSeen(matchId);
     }
 
     showDialog(
-      context: context,
+      context: rootContext,
       barrierDismissible: false,
-      builder: (BuildContext context) {
+      builder: (BuildContext dialogContext) {
         return Dialog(
           backgroundColor: Colors.transparent,
           child: Container(
@@ -349,33 +354,34 @@ class _DiscoverPageState extends State<DiscoverPage> {
                     ),
                     child: dog.imageUrl.isNotEmpty
                         ? Image.network(
-                            dog.imageUrl,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return const Center(
-                                child: Icon(
-                                  Icons.pets,
-                                  size: 60,
-                                  color: Colors.white,
-                                ),
-                              );
-                            },
-                            loadingBuilder: (context, child, loadingProgress) {
-                              if (loadingProgress == null) return child;
-                              return const Center(
-                                child: CircularProgressIndicator(
-                                  color: Color(persimon),
-                                ),
-                              );
-                            },
-                          )
-                        : const Center(
-                            child: Icon(
-                              Icons.pets,
-                              size: 60,
-                              color: Colors.white,
-                            ),
+                      dog.imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Center(
+                          child: Icon(
+                            Icons.pets,
+                            size: 60,
+                            color: Colors.white,
                           ),
+                        );
+                      },
+                      loadingBuilder:
+                          (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return const Center(
+                          child: CircularProgressIndicator(
+                            color: Color(persimon),
+                          ),
+                        );
+                      },
+                    )
+                        : const Center(
+                      child: Icon(
+                        Icons.pets,
+                        size: 60,
+                        color: Colors.white,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -386,8 +392,31 @@ class _DiscoverPageState extends State<DiscoverPage> {
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: () {
-                          // TODO: Navigate to chat - teammate will implement
-                          Navigator.pop(context);
+                          // zamknij dialog
+                          Navigator.of(dialogContext).pop();
+
+                          if (matchId != null) {
+                            // przejdź bezpośrednio do konkretnego czatu
+                            Navigator.push(
+                              rootContext,
+                              MaterialPageRoute(
+                                builder: (_) => ChatPage(
+                                  matchId: matchId,
+                                  peerId: dog.id,
+                                  dogName: dog.name,
+                                  dogImageUrl: dog.imageUrl,
+                                ),
+                              ),
+                            );
+                          } else {
+                            // fallback – chociaż lista czatów
+                            Navigator.push(
+                              rootContext,
+                              MaterialPageRoute(
+                                builder: (_) => const ChatHistoryPage(),
+                              ),
+                            );
+                          }
                         },
                         icon: const Icon(Icons.chat_bubble),
                         label: const Text('Send Message'),
@@ -408,7 +437,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 // Keep Swiping button
                 TextButton(
                   onPressed: () {
-                    Navigator.pop(context);
+                    Navigator.of(dialogContext).pop();
                   },
                   style: TextButton.styleFrom(
                     foregroundColor: const Color(darkGrey),
@@ -499,18 +528,18 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 child: currentIndex < dogs.length
                     ? _buildDogCard(dogs[currentIndex])
                     : Center(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 32),
-                          child: Text(
-                            'There are no more dogs in your neighborhood! Maybe try expanding your search area.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: const Color(ashGrey),
-                            ),
-                          ),
-                        ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: Text(
+                      'There are no more dogs in your neighborhood! Maybe try expanding your search area.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: const Color(ashGrey),
                       ),
+                    ),
+                  ),
+                ),
               ),
             if (!loading && errorText == null && currentIndex < dogs.length)
               Padding(
