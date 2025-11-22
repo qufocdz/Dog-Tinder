@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dog_tinder/globals.dart';
 import 'package:flutter/material.dart';
 
@@ -44,12 +46,16 @@ class _ChatPageState extends State<ChatPage> {
   String? _error;
   List<ChatMessageView> _messages = [];
   String? _myUserId;
+  Timer? _pollTimer;
 
   @override
   void initState() {
     super.initState();
     _myUserId = user != null ? user!['id']?.toString() : null;
     _loadMessages();
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _loadMessages(silent: true);
+    });
   }
 
   @override
@@ -57,10 +63,11 @@ class _ChatPageState extends State<ChatPage> {
     _messageController.dispose();
     _scrollController.dispose();
     _messageFocusNode.dispose();
+    _pollTimer?.cancel();
     super.dispose();
   }
 
-  Future<void> _loadMessages() async {
+  Future<void> _loadMessages({bool silent = false}) async {
     if (_myUserId == null || _myUserId!.isEmpty) {
       setState(() {
         _error =
@@ -69,10 +76,12 @@ class _ChatPageState extends State<ChatPage> {
       return;
     }
 
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
     try {
       final raw = await ChatService.fetchMessages(widget.matchId);
@@ -94,11 +103,13 @@ class _ChatPageState extends State<ChatPage> {
 
       _scrollToBottom();
     } catch (e) {
-      setState(() {
-        _error = e.toString();
-      });
+      if (!silent) {
+        setState(() {
+          _error = e.toString();
+        });
+      }
     } finally {
-      if (mounted) {
+      if (mounted && !silent) {
         setState(() {
           _loading = false;
         });
@@ -124,7 +135,6 @@ class _ChatPageState extends State<ChatPage> {
 
     _messageController.clear();
 
-    // Optymistycznie dodajemy wiadomość
     final localMsg = ChatMessageView(
       id: 'local-${DateTime.now().millisecondsSinceEpoch}',
       text: text,
@@ -143,8 +153,7 @@ class _ChatPageState extends State<ChatPage> {
         fromUserId: _myUserId!,
         text: text,
       );
-      // po udanym wysłaniu odświeżamy listę z serwera (żeby mieć prawdziwe id, timestamp)
-      await _loadMessages();
+      await _loadMessages(silent: true);
     } catch (e) {
       setState(() {
         _error = 'Nie udało się wysłać wiadomości: $e';
@@ -205,7 +214,6 @@ class _ChatPageState extends State<ChatPage> {
                 style: const TextStyle(color: Colors.red, fontSize: 12),
               ),
             ),
-          // Messages list
           Expanded(
             child: _loading && _messages.isEmpty
                 ? const Center(child: CircularProgressIndicator())
@@ -272,7 +280,6 @@ class _ChatPageState extends State<ChatPage> {
               },
             ),
           ),
-          // Message input
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
@@ -288,7 +295,6 @@ class _ChatPageState extends State<ChatPage> {
             child: SafeArea(
               child: Row(
                 children: [
-                  // Emoji button (na razie tylko fokus na input)
                   IconButton(
                     onPressed: () {
                       _messageFocusNode.requestFocus();
@@ -299,7 +305,6 @@ class _ChatPageState extends State<ChatPage> {
                       size: 28,
                     ),
                   ),
-                  // Text field
                   Expanded(
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -320,7 +325,6 @@ class _ChatPageState extends State<ChatPage> {
                       ),
                     ),
                   ),
-                  // Send button
                   IconButton(
                     onPressed: _sendMessage,
                     icon: Icon(Icons.send, color: Color(persimon), size: 28),

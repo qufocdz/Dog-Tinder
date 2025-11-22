@@ -37,11 +37,37 @@ class _DiscoverPageState extends State<DiscoverPage> {
   bool loading = true;
   String? errorText;
 
+  int unreadMessagesCount = 0; // suma nieprzeczytanych wiadomości
+
   @override
   void initState() {
     super.initState();
-    _checkUnseenMatches();
+    _checkUnseenMatches();      // popup "It's a match"
+    _loadUnreadMessagesCount(); // badge na ikonie czatu
     _loadCandidates();
+  }
+
+  Future<void> _loadUnreadMessagesCount() async {
+    try {
+      final u = user ?? {};
+      final me = ((u['id'] ?? u['_id']) ?? '').toString();
+      if (me.isEmpty) return;
+
+      final raw = await ChatService.fetchChats(me);
+      int total = 0;
+      for (final item in raw) {
+        final map = item as Map<String, dynamic>;
+        final unread = (map['unreadCount'] as num?)?.toInt() ?? 0;
+        total += unread;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        unreadMessagesCount = total;
+      });
+    } catch (e) {
+      print('Error loading unread messages count: $e');
+    }
   }
 
   Future<void> _checkUnseenMatches() async {
@@ -51,18 +77,22 @@ class _DiscoverPageState extends State<DiscoverPage> {
       if (me.isEmpty) return;
 
       final uri = Uri.parse('$baseUrl/api/matches/unseen?userId=$me');
-      final resp = await http.get(uri);
+
+      final token = await TokenManager.getToken();
+      final headers = <String, String>{};
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      final resp = await http.get(uri, headers: headers);
 
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
         final data = json.decode(resp.body) as Map<String, dynamic>;
         final matches = (data['matches'] as List?) ?? [];
 
         if (matches.isNotEmpty && mounted) {
-          // Show popups for each unseen match with delay
           for (int i = 0; i < matches.length; i++) {
-            await Future.delayed(
-              Duration(milliseconds: i * 500),
-            ); // Delay between popups
+            await Future.delayed(Duration(milliseconds: i * 500));
             if (!mounted) return;
 
             final matchData = Map<String, dynamic>.from(matches[i] as Map);
@@ -84,7 +114,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
         }
       }
     } catch (e) {
-      // Silently fail - unseen matches are not critical
       print('Error checking unseen matches: $e');
     }
   }
@@ -112,7 +141,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
   }
 
   String _imageUrlFrom(Map<String, dynamic> e) {
-    // Try new imageUrlDb endpoint first
     final imageUrlDb = (e['imageUrlDb'] ?? '').toString();
     if (imageUrlDb.isNotEmpty && imageUrlDb.startsWith('/')) {
       return '$baseUrl$imageUrlDb';
@@ -120,7 +148,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
     if (imageUrlDb.isNotEmpty && imageUrlDb.startsWith('http')) {
       return imageUrlDb;
     }
-    // Fallback to old imagePath for compatibility
     final imagePath = (e['imagePath'] ?? '').toString();
     if (imagePath.isNotEmpty) {
       return '$baseUrl/uploads/$imagePath';
@@ -164,7 +191,14 @@ class _DiscoverPageState extends State<DiscoverPage> {
       }
 
       final uri = Uri.parse('$baseUrl/api/discover?userId=$me');
-      final resp = await http.get(uri);
+
+      final token = await TokenManager.getToken();
+      final headers = <String, String>{};
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      final resp = await http.get(uri, headers: headers);
 
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
         final data = json.decode(resp.body) as Map<String, dynamic>;
@@ -182,7 +216,7 @@ class _DiscoverPageState extends State<DiscoverPage> {
           return DogProfile(
             id: id,
             name: name,
-            age: age > 0 ? age : 3, // fallback to 3 if no birthdate
+            age: age > 0 ? age : 3,
             description: desc,
             imageUrl:
             img.isEmpty ? 'https://picsum.photos/seed/$id/800/600' : img,
@@ -281,10 +315,8 @@ class _DiscoverPageState extends State<DiscoverPage> {
   }
 
   void _showMatchDialog(DogProfile dog, [String? matchId]) {
-    // zachowujemy context ekranu Discover
     final rootContext = context;
 
-    // jeśli mamy matchId z /matches/unseen, zaznaczamy jako "seen"
     if (matchId != null) {
       _markMatchAsSeen(matchId);
     }
@@ -311,7 +343,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Match icon with animation
                 Container(
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
@@ -325,7 +356,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                // It's a Match! text
                 const Text(
                   "It's a Match!",
                   style: TextStyle(
@@ -335,14 +365,12 @@ class _DiscoverPageState extends State<DiscoverPage> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                // Matched with name
                 Text(
                   "You and ${dog.name} liked each other!",
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 16, color: Color(darkGrey)),
                 ),
                 const SizedBox(height: 32),
-                // Dog image
                 ClipRRect(
                   borderRadius: BorderRadius.circular(16),
                   child: Container(
@@ -385,18 +413,14 @@ class _DiscoverPageState extends State<DiscoverPage> {
                   ),
                 ),
                 const SizedBox(height: 24),
-                // Action buttons
                 Row(
                   children: [
-                    // Send Message button
                     Expanded(
                       child: ElevatedButton.icon(
                         onPressed: () {
-                          // zamknij dialog
                           Navigator.of(dialogContext).pop();
 
                           if (matchId != null) {
-                            // przejdź bezpośrednio do konkretnego czatu
                             Navigator.push(
                               rootContext,
                               MaterialPageRoute(
@@ -407,15 +431,14 @@ class _DiscoverPageState extends State<DiscoverPage> {
                                   dogImageUrl: dog.imageUrl,
                                 ),
                               ),
-                            );
+                            ).then((_) => _loadUnreadMessagesCount());
                           } else {
-                            // fallback – chociaż lista czatów
                             Navigator.push(
                               rootContext,
                               MaterialPageRoute(
                                 builder: (_) => const ChatHistoryPage(),
                               ),
-                            );
+                            ).then((_) => _loadUnreadMessagesCount());
                           }
                         },
                         icon: const Icon(Icons.chat_bubble),
@@ -434,7 +457,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                // Keep Swiping button
                 TextButton(
                   onPressed: () {
                     Navigator.of(dialogContext).pop();
@@ -469,25 +491,53 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   IconButton(
-                    onPressed: () {
-                      Navigator.push(
+                    onPressed: () async {
+                      await Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (context) => const ChatHistoryPage(),
                         ),
                       );
+                      _loadUnreadMessagesCount();
                     },
-                    icon: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(persimon),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.chat_bubble,
-                        color: Colors.white,
-                        size: 24,
-                      ),
+                    icon: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(persimon),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.chat_bubble,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                        if (unreadMessagesCount > 0)
+                          Positioned(
+                            right: 0,
+                            top: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: const BoxDecoration(
+                                color: Colors.red,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                unreadMessagesCount > 9
+                                    ? '9+'
+                                    : unreadMessagesCount.toString(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   const Text(

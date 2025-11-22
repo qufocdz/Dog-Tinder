@@ -12,6 +12,9 @@ class ChatPreview {
   final String? lastMessage;
   final String? imageUrl;
   final DateTime lastAt;
+  final int unreadCount;
+
+  bool get hasUnread => unreadCount > 0;
 
   ChatPreview({
     required this.matchId,
@@ -20,6 +23,7 @@ class ChatPreview {
     required this.lastAt,
     this.lastMessage,
     this.imageUrl,
+    this.unreadCount = 0,
   });
 
   factory ChatPreview.fromJson(Map<String, dynamic> json) {
@@ -35,6 +39,8 @@ class ChatPreview {
       }
     }
 
+    final unread = (json['unreadCount'] as num?)?.toInt() ?? 0;
+
     return ChatPreview(
       matchId: json['matchId'] as String,
       peerId: (peer['id'] ?? '') as String,
@@ -42,6 +48,7 @@ class ChatPreview {
       lastMessage: json['lastMessage'] as String?,
       lastAt: DateTime.parse(json['lastAt'] as String),
       imageUrl: fullImageUrl,
+      unreadCount: unread,
     );
   }
 }
@@ -65,7 +72,6 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
   }
 
   Future<void> _loadChats() async {
-    // jeśli globalny user jest pusty, spróbujmy go wczytać z pamięci
     if (user == null) {
       await TokenManager.loadUser();
     }
@@ -90,6 +96,9 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
       final chats = raw
           .map((e) => ChatPreview.fromJson(e as Map<String, dynamic>))
           .toList();
+
+      chats.sort((a, b) => b.lastAt.compareTo(a.lastAt));
+
       setState(() {
         _chats = chats;
       });
@@ -106,11 +115,27 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
     }
   }
 
+  String _formatTime(DateTime dt) {
+    final now = DateTime.now();
+    final diff = now.difference(dt);
+
+    if (diff.inDays == 0) {
+      final h = dt.hour.toString().padLeft(2, '0');
+      final m = dt.minute.toString().padLeft(2, '0');
+      return '$h:$m';
+    } else if (diff.inDays == 1) {
+      return 'Yesterday';
+    } else {
+      final d = dt.day.toString().padLeft(2, '0');
+      final m = dt.month.toString().padLeft(2, '0');
+      return '$d.$m';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onVerticalDragEnd: (details) {
-        // Swipe up to go back to discovery page
         if (details.primaryVelocity! < -500) {
           Navigator.popUntil(context, (route) => route.isFirst);
         }
@@ -120,7 +145,6 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
         body: SafeArea(
           child: Column(
             children: [
-              // Header
               Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
@@ -136,7 +160,6 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    // Profile button
                     GestureDetector(
                       onTap: () {
                         Navigator.push(
@@ -155,16 +178,12 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
                   ],
                 ),
               ),
-
-              // Chat list / loading / error
               Expanded(
                 child: RefreshIndicator(
                   onRefresh: _loadChats,
                   child: _buildBody(),
                 ),
               ),
-
-              // Swipe up indicator
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 child: Column(
@@ -234,8 +253,8 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
     final imageUrl = chat.imageUrl;
 
     return InkWell(
-      onTap: () {
-        Navigator.push(
+      onTap: () async {
+        await Navigator.push(
           context,
           MaterialPageRoute(
             builder: (context) => ChatPage(
@@ -246,6 +265,7 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
             ),
           ),
         );
+        _loadChats(); // po powrocie odśwież listę i badge
       },
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -256,7 +276,6 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
         ),
         child: Row(
           children: [
-            // Dog profile picture
             CircleAvatar(
               radius: 30,
               backgroundColor: const Color(ashGrey),
@@ -279,7 +298,6 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
               ),
             ),
             const SizedBox(width: 16),
-            // Dog name and last message
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -303,6 +321,39 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
                   ),
                 ],
               ),
+            ),
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(
+                  _formatTime(chat.lastAt),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: const Color(darkGrey),
+                  ),
+                ),
+                if (chat.hasUnread)
+                  Container(
+                    margin: const EdgeInsets.only(top: 4),
+                    padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(persimon),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      chat.unreadCount > 9
+                          ? '9+'
+                          : chat.unreadCount.toString(),
+                      style: const TextStyle(
+                        fontSize: 10,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ],
         ),
