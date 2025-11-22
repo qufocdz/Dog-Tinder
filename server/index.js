@@ -115,6 +115,21 @@ app.post('/api/register', upload.single('dogImage'), async (req, res) => {
     if (!dogName || !email || !password || !birthdate || !description || !req.file) {
       return res.status(400).json({ error: 'Missing fields' });
     }
+    
+    // Email validation
+    const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+    if (email.length > 254) {
+      return res.status(400).json({ error: 'Email is too long' });
+    }
+    
+    // Password validation
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters long' });
+    }
+    
     const existing = await User.findOne({ email });
     if (existing) return res.status(409).json({ error: 'Email already registered' });
     const passwordHash = await bcrypt.hash(password, 10);
@@ -305,30 +320,11 @@ app.get('/api/discover', async (req, res) => {
 });
 
 
-app.put('/api/user/:id', upload.single('dogImage'), async (req, res) => {
+// Get user profile
+app.get('/api/user/:id', verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
-    const { dogName, description, birthdate } = req.body;
-
-    const update = {};
-    if (dogName !== undefined) update.dogName = dogName;
-    if (description !== undefined) update.description = description;
-    if (birthdate !== undefined) update.birthdate = new Date(birthdate);
-    if (req.file) {
-      try {
-        if (req.file.buffer && Buffer.isBuffer(req.file.buffer)) {
-          update.imageData = req.file.buffer;
-        } else if (req.file.path) {
-          const buf = fs.readFileSync(req.file.path);
-          update.imageData = buf;
-          try { fs.unlinkSync(req.file.path); } catch (e) { /* ignore */ }
-        }
-      } catch (e) {
-        console.error('Failed to read uploaded file for user update:', e.message || e);
-      }
-    }
-
-    const userDoc = await User.findByIdAndUpdate(id, { $set: update }, { new: true });
+    const userDoc = await User.findById(id);
     if (!userDoc) return res.status(404).json({ error: 'Not found' });
 
     res.json({
@@ -343,6 +339,58 @@ app.put('/api/user/:id', upload.single('dogImage'), async (req, res) => {
       }
     });
   } catch (e) {
+    res.status(500).json({ error: e.message || 'Server error' });
+  }
+});
+
+app.put('/api/user/:id', verifyToken, upload.single('dogImage'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { dogName, description, birthdate } = req.body;
+    
+    console.log('PUT /api/user/:id called with id:', id);
+    console.log('Request body:', { dogName, description, birthdate });
+    console.log('File uploaded:', req.file ? 'YES' : 'NO');
+
+    const update = {};
+    if (dogName !== undefined) update.dogName = dogName;
+    if (description !== undefined) update.description = description;
+    if (birthdate !== undefined) update.birthdate = new Date(birthdate);
+    if (req.file) {
+      try {
+        if (req.file.buffer && Buffer.isBuffer(req.file.buffer)) {
+          update.imageData = req.file.buffer;
+          console.log('Using file buffer, size:', req.file.buffer.length);
+        } else if (req.file.path) {
+          const buf = fs.readFileSync(req.file.path);
+          update.imageData = buf;
+          console.log('Using file path buffer, size:', buf.length);
+          try { fs.unlinkSync(req.file.path); } catch (e) { /* ignore */ }
+        }
+      } catch (e) {
+        console.error('Failed to read uploaded file for user update:', e.message || e);
+      }
+    }
+
+    console.log('Update object keys:', Object.keys(update));
+    const userDoc = await User.findByIdAndUpdate(id, { $set: update }, { new: true });
+    if (!userDoc) return res.status(404).json({ error: 'Not found' });
+
+    console.log('User updated successfully, imageData length:', userDoc.imageData ? userDoc.imageData.length : 'none');
+
+    res.json({
+      success: true,
+      user: {
+        id: userDoc._id,
+        dogName: userDoc.dogName,
+        email: userDoc.email,
+        birthdate: userDoc.birthdate,
+        description: userDoc.description,
+        imageUrlDb: `/api/user/${userDoc._id}/photo`,
+      }
+    });
+  } catch (e) {
+    console.error('PUT /api/user error:', e);
     res.status(500).json({ error: e.message || 'Server error' });
   }
 });

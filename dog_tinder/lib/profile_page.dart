@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import 'globals.dart';
 import 'chat_history_page.dart';
 import 'login_page.dart';
@@ -20,6 +23,8 @@ class _ProfilePageState extends State<ProfilePage> {
 
   final FocusNode nameFocusNode = FocusNode();
   final FocusNode descriptionFocusNode = FocusNode();
+  File? selectedImageFile;
+  final ImagePicker _picker = ImagePicker();
 
   @override
   void initState() {
@@ -33,6 +38,37 @@ class _ProfilePageState extends State<ProfilePage> {
     );
     selectedBirthDate =
         _parseIso(u['birthdate']?.toString()) ?? DateTime(2020, 1, 1);
+    _loadUserProfile();
+  }
+
+  Future<void> _loadUserProfile() async {
+    try {
+      final u = user ?? {};
+      final userId = (u['id'] ?? u['_id']);
+      if (userId == null) return;
+
+      final profile = await UserService.getProfile(userId.toString());
+      if (!mounted) return;
+
+      final profileUser = profile['user'] ?? profile;
+      
+      // Wyczyść cache image'u aby wymuszić odświeżenie z sieci
+      final imageUrlDb = (profileUser['imageUrlDb'] ?? '').toString();
+      if (imageUrlDb.isNotEmpty && imageUrlDb.startsWith('/')) {
+        final fullUrl = '$baseUrl$imageUrlDb';
+        imageCache.evict(NetworkImage(fullUrl));
+      }
+      
+      setState(() {
+        user = profileUser;
+        nameController.text = (profileUser['dogName'] ?? '').toString();
+        descriptionController.text = (profileUser['description'] ?? '').toString();
+        selectedBirthDate =
+            _parseIso(profileUser['birthdate']?.toString()) ?? DateTime(2020, 1, 1);
+      });
+    } catch (e) {
+      print('Failed to load user profile: $e');
+    }
   }
 
   @override
@@ -79,7 +115,9 @@ class _ProfilePageState extends State<ProfilePage> {
     // Try new imageUrlDb endpoint first
     final imageUrlDb = (userData['imageUrlDb'] ?? '').toString();
     if (imageUrlDb.isNotEmpty && imageUrlDb.startsWith('/')) {
-      return '$baseUrl$imageUrlDb';
+      // Add timestamp to bust cache
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      return '$baseUrl$imageUrlDb?t=$timestamp';
     }
     if (imageUrlDb.isNotEmpty && imageUrlDb.startsWith('http')) {
       return imageUrlDb;
@@ -101,6 +139,20 @@ class _ProfilePageState extends State<ProfilePage> {
     if (picked != null && picked != selectedBirthDate) {
       setState(() {
         selectedBirthDate = picked;
+      });
+    }
+  }
+
+  Future<void> _pickProfileImage() async {
+    final XFile? picked = await _picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 1200,
+      maxHeight: 1200,
+      imageQuality: 85,
+    );
+    if (picked != null) {
+      setState(() {
+        selectedImageFile = File(picked.path);
       });
     }
   }
@@ -131,7 +183,7 @@ class _ProfilePageState extends State<ProfilePage> {
           dogName: dogName,
           description: description,
           birthdate: birthStr,
-          // imageFile: <dodasz później>
+          imageFile: selectedImageFile,
         );
 
         setState(() {
@@ -140,6 +192,7 @@ class _ProfilePageState extends State<ProfilePage> {
           descriptionController.text = (user?['description'] ?? '').toString();
           selectedBirthDate =
               _parseIso(user?['birthdate']?.toString()) ?? selectedBirthDate;
+          selectedImageFile = null;
           isEditMode = false;
         });
 
@@ -147,6 +200,12 @@ class _ProfilePageState extends State<ProfilePage> {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text('Profile saved')));
+          
+          // Wczytaj świeże dane z bazy danych po 500ms
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (mounted) {
+            await _loadUserProfile();
+          }
         }
         return;
       } catch (e) {
@@ -268,10 +327,12 @@ class _ProfilePageState extends State<ProfilePage> {
                             CircleAvatar(
                               radius: 80,
                               backgroundColor: const Color(ashGrey),
-                              backgroundImage: imageUrl.isNotEmpty
-                                  ? NetworkImage(imageUrl)
-                                  : null,
-                              child: imageUrl.isEmpty
+                              backgroundImage: selectedImageFile != null
+                                  ? FileImage(selectedImageFile!)
+                                  : (imageUrl.isNotEmpty
+                                      ? NetworkImage(imageUrl)
+                                      : null),
+                              child: (selectedImageFile == null && imageUrl.isEmpty)
                                   ? const Icon(
                                       Icons.pets,
                                       size: 60,
@@ -283,16 +344,19 @@ class _ProfilePageState extends State<ProfilePage> {
                               Positioned(
                                 right: 0,
                                 bottom: 0,
-                                child: Container(
-                                  padding: const EdgeInsets.all(8),
-                                  decoration: BoxDecoration(
-                                    color: const Color(persimon),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.edit,
-                                    color: Colors.white,
-                                    size: 20,
+                                child: GestureDetector(
+                                  onTap: _pickProfileImage,
+                                  child: Container(
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: const Color(persimon),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.edit,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
                                   ),
                                 ),
                               ),

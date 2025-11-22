@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:dog_tinder/globals.dart';
 
 const String? envApi = String.fromEnvironment('API_BASE_URL');
 String get baseUrl {
@@ -14,6 +15,24 @@ String get baseUrl {
 }
 
 class UserService {
+  static Future<Map<String, dynamic>> getProfile(String id) async {
+    final uri = Uri.parse('$baseUrl/api/user/$id');
+    final token = authToken;
+
+    final resp = await http.get(
+      uri,
+      headers: {
+        'Content-Type': 'application/json',
+        if (token != null) 'Authorization': 'Bearer $token',
+      },
+    );
+
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      return json.decode(resp.body) as Map<String, dynamic>;
+    }
+    throw Exception('Failed to get profile: ${resp.statusCode} ${resp.body}');
+  }
+
   static Future<Map<String, dynamic>> updateProfile({
     required String id,
     String? dogName,
@@ -22,9 +41,13 @@ class UserService {
     File? imageFile,
   }) async {
     final uri = Uri.parse('$baseUrl/api/user/$id');
+    final token = authToken;
 
     if (imageFile != null) {
       final req = http.MultipartRequest('PUT', uri);
+      if (token != null) {
+        req.headers['Authorization'] = 'Bearer $token';
+      }
       if (dogName != null) req.fields['dogName'] = dogName;
       if (description != null) req.fields['description'] = description;
       if (birthdate != null) req.fields['birthdate'] = birthdate;
@@ -45,7 +68,10 @@ class UserService {
     } else {
       final resp = await http.put(
         uri,
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          if (token != null) 'Authorization': 'Bearer $token',
+        },
         body: json.encode({
           if (dogName != null) 'dogName': dogName,
           if (description != null) 'description': description,

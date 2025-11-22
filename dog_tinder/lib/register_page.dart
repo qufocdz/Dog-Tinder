@@ -1,8 +1,10 @@
 import 'dart:io';
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'globals.dart';
 import 'discover_page.dart';
 import 'services/auth_service.dart';
@@ -29,6 +31,16 @@ class _RegisterPageState extends State<RegisterPage> {
   final ImagePicker _picker = ImagePicker();
   DateTime? dogBirthdate;
   bool isLoading = false;
+
+  bool _isValidEmail(String email) {
+    // Email format validation - simple but effective
+    final emailRegex = RegExp(
+      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+    );
+    if (!emailRegex.hasMatch(email)) return false;
+    if (email.length > 254) return false;
+    return true;
+  }
 
   Future<void> pickDogImage() async {
     final XFile? picked = await _picker.pickImage(
@@ -82,6 +94,24 @@ class _RegisterPageState extends State<RegisterPage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please fill all fields and choose a dog photo.'),
+        ),
+      );
+      return;
+    }
+
+    if (!_isValidEmail(email)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a valid email address.'),
+        ),
+      );
+      return;
+    }
+
+    if (password.length < 6) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Password must be at least 6 characters long.'),
         ),
       );
       return;
@@ -246,7 +276,7 @@ class _RegisterPageState extends State<RegisterPage> {
                     TextField(
                       controller: passwordController,
                       decoration: const InputDecoration(
-                        labelText: "Password",
+                        labelText: "Password (min. 6 characters)",
                         enabledBorder: OutlineInputBorder(
                           borderSide: BorderSide(
                             color: Color(richBlack),
@@ -344,10 +374,34 @@ class _RegisterPageState extends State<RegisterPage> {
                             });
                           },
                         ),
-                        const Expanded(
-                          child: Text(
-                            "I agree to the Terms and Conditions",
-                            style: TextStyle(color: Color(richBlack)),
+                        Expanded(
+                          child: RichText(
+                            text: TextSpan(
+                              text: 'I agree to the ',
+                              style: const TextStyle(
+                                color: Color(richBlack),
+                                fontSize: 16,
+                              ),
+                              children: [
+                                TextSpan(
+                                  text: 'Terms and Conditions',
+                                  style: const TextStyle(
+                                    color: Colors.blue,
+                                    decoration: TextDecoration.underline,
+                                    fontSize: 16,
+                                  ),
+                                  recognizer: TapGestureRecognizer()
+                                    ..onTap = () async {
+                                      final Uri url = Uri.parse(
+                                        'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+                                      );
+                                      if (await canLaunchUrl(url)) {
+                                        await launchUrl(url);
+                                      }
+                                    },
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],
