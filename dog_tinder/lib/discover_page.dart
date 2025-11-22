@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'globals.dart';
 import 'chat_history_page.dart';
 import 'profile_page.dart';
+import 'chat_page.dart';
 import 'services/chat_service.dart'; // baseUrl + ChatService
 
 class DogProfile {
@@ -36,14 +37,110 @@ class _DiscoverPageState extends State<DiscoverPage> {
   bool loading = true;
   String? errorText;
 
+  int unreadMessagesCount = 0; // suma nieprzeczytanych wiadomości
+
   @override
   void initState() {
     super.initState();
+    _checkUnseenMatches();      // popup "It's a match"
+    _loadUnreadMessagesCount(); // badge na ikonie czatu
     _loadCandidates();
   }
 
+  Future<void> _loadUnreadMessagesCount() async {
+    try {
+      final u = user ?? {};
+      final me = ((u['id'] ?? u['_id']) ?? '').toString();
+      if (me.isEmpty) return;
+
+      final raw = await ChatService.fetchChats(me);
+      int total = 0;
+      for (final item in raw) {
+        final map = item as Map<String, dynamic>;
+        final unread = (map['unreadCount'] as num?)?.toInt() ?? 0;
+        total += unread;
+      }
+
+      if (!mounted) return;
+      setState(() {
+        unreadMessagesCount = total;
+      });
+    } catch (e) {
+      print('Error loading unread messages count: $e');
+    }
+  }
+
+  Future<void> _checkUnseenMatches() async {
+    try {
+      final u = user ?? {};
+      final me = ((u['id'] ?? u['_id']) ?? '').toString();
+      if (me.isEmpty) return;
+
+      final uri = Uri.parse('$baseUrl/api/matches/unseen?userId=$me');
+
+      final token = await TokenManager.getToken();
+      final headers = <String, String>{};
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      final resp = await http.get(uri, headers: headers);
+
+      if (resp.statusCode >= 200 && resp.statusCode < 300) {
+        final data = json.decode(resp.body) as Map<String, dynamic>;
+        final matches = (data['matches'] as List?) ?? [];
+
+        if (matches.isNotEmpty && mounted) {
+          for (int i = 0; i < matches.length; i++) {
+            await Future.delayed(Duration(milliseconds: i * 500));
+            if (!mounted) return;
+
+            final matchData = Map<String, dynamic>.from(matches[i] as Map);
+            final matchId = matchData['matchId'].toString();
+            final userData = Map<String, dynamic>.from(
+              matchData['user'] as Map,
+            );
+
+            final dogProfile = DogProfile(
+              id: userData['id'].toString(),
+              name: userData['dogName'].toString(),
+              age: _calculateAge(userData['birthdate']?.toString()),
+              description: userData['description']?.toString() ?? '',
+              imageUrl: _imageUrlFrom(userData),
+            );
+
+            _showMatchDialog(dogProfile, matchId);
+          }
+        }
+      }
+    } catch (e) {
+      print('Error checking unseen matches: $e');
+    }
+  }
+
+  Future<void> _markMatchAsSeen(String matchId) async {
+    try {
+      final token = await TokenManager.getToken();
+      if (token == null) return;
+
+      final u = user ?? {};
+      final me = ((u['id'] ?? u['_id']) ?? '').toString();
+      if (me.isEmpty) return;
+
+      await http.post(
+        Uri.parse('$baseUrl/api/matches/$matchId/seen'),
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer $token',
+        },
+        body: jsonEncode({'userId': me}),
+      );
+    } catch (e) {
+      print('Error marking match as seen: $e');
+    }
+  }
+
   String _imageUrlFrom(Map<String, dynamic> e) {
-    // Try new imageUrlDb endpoint first
     final imageUrlDb = (e['imageUrlDb'] ?? '').toString();
     if (imageUrlDb.isNotEmpty && imageUrlDb.startsWith('/')) {
       return '$baseUrl$imageUrlDb';
@@ -51,7 +148,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
     if (imageUrlDb.isNotEmpty && imageUrlDb.startsWith('http')) {
       return imageUrlDb;
     }
-    // Fallback to old imagePath for compatibility
     final imagePath = (e['imagePath'] ?? '').toString();
     if (imagePath.isNotEmpty) {
       return '$baseUrl/uploads/$imagePath';
@@ -61,6 +157,25 @@ class _DiscoverPageState extends State<DiscoverPage> {
       return direct;
     }
     return '';
+  }
+
+  int _calculateAge(String? birthdateStr) {
+    if (birthdateStr == null || birthdateStr.isEmpty) {
+      return 0;
+    }
+
+    try {
+      final birthdate = DateTime.parse(birthdateStr);
+      final now = DateTime.now();
+      int age = now.year - birthdate.year;
+      if (now.month < birthdate.month ||
+          (now.month == birthdate.month && now.day < birthdate.day)) {
+        age--;
+      }
+      return age;
+    } catch (e) {
+      return 0;
+    }
   }
 
   Future<void> _loadCandidates() async {
@@ -76,7 +191,14 @@ class _DiscoverPageState extends State<DiscoverPage> {
       }
 
       final uri = Uri.parse('$baseUrl/api/discover?userId=$me');
-      final resp = await http.get(uri);
+
+      final token = await TokenManager.getToken();
+      final headers = <String, String>{};
+      if (token != null && token.isNotEmpty) {
+        headers['Authorization'] = 'Bearer $token';
+      }
+
+      final resp = await http.get(uri, headers: headers);
 
       if (resp.statusCode >= 200 && resp.statusCode < 300) {
         final data = json.decode(resp.body) as Map<String, dynamic>;
@@ -88,15 +210,16 @@ class _DiscoverPageState extends State<DiscoverPage> {
           final name = (e['dogName'] ?? e['name'] ?? 'Doggo').toString();
           final desc = (e['description'] ?? '').toString();
           final img = _imageUrlFrom(e);
+          final birthdateStr = (e['birthdate'] ?? '').toString();
+          final age = _calculateAge(birthdateStr);
 
           return DogProfile(
             id: id,
             name: name,
-            age: 3, // jeśli backend nie zwraca wieku
+            age: age > 0 ? age : 3,
             description: desc,
-            imageUrl: img.isEmpty
-                ? 'https://picsum.photos/seed/$id/800/600'
-                : img,
+            imageUrl:
+            img.isEmpty ? 'https://picsum.photos/seed/$id/800/600' : img,
           );
         }).toList();
 
@@ -176,10 +299,9 @@ class _DiscoverPageState extends State<DiscoverPage> {
 
       if (res['matched'] == true) {
         if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("It's a match with ${dog.name}!")),
-        );
-        // tu możesz przejść od razu do ekranu czatu
+
+        final matchId = res['matchId']?.toString();
+        _showMatchDialog(dog, matchId);
       }
     } catch (e) {
       if (!mounted) return;
@@ -190,6 +312,170 @@ class _DiscoverPageState extends State<DiscoverPage> {
         currentIndex++;
       });
     }
+  }
+
+  void _showMatchDialog(DogProfile dog, [String? matchId]) {
+    final rootContext = context;
+
+    if (matchId != null) {
+      _markMatchAsSeen(matchId);
+    }
+
+    showDialog(
+      context: rootContext,
+      barrierDismissible: false,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          child: Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: const Color(creamWhite),
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withAlpha(51),
+                  blurRadius: 20,
+                  offset: const Offset(0, 10),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: const Color(persimon).withAlpha(26),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.favorite,
+                    color: Color(persimon),
+                    size: 60,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  "It's a Match!",
+                  style: TextStyle(
+                    fontSize: 32,
+                    fontWeight: FontWeight.bold,
+                    color: Color(richBlack),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  "You and ${dog.name} liked each other!",
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(fontSize: 16, color: Color(darkGrey)),
+                ),
+                const SizedBox(height: 32),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                    height: 200,
+                    width: double.infinity,
+                    decoration: BoxDecoration(
+                      color: const Color(lightGrey),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: dog.imageUrl.isNotEmpty
+                        ? Image.network(
+                      dog.imageUrl,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Center(
+                          child: Icon(
+                            Icons.pets,
+                            size: 60,
+                            color: Colors.white,
+                          ),
+                        );
+                      },
+                      loadingBuilder:
+                          (context, child, loadingProgress) {
+                        if (loadingProgress == null) return child;
+                        return const Center(
+                          child: CircularProgressIndicator(
+                            color: Color(persimon),
+                          ),
+                        );
+                      },
+                    )
+                        : const Center(
+                      child: Icon(
+                        Icons.pets,
+                        size: 60,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () {
+                          Navigator.of(dialogContext).pop();
+
+                          if (matchId != null) {
+                            Navigator.push(
+                              rootContext,
+                              MaterialPageRoute(
+                                builder: (_) => ChatPage(
+                                  matchId: matchId,
+                                  peerId: dog.id,
+                                  dogName: dog.name,
+                                  dogImageUrl: dog.imageUrl,
+                                ),
+                              ),
+                            ).then((_) => _loadUnreadMessagesCount());
+                          } else {
+                            Navigator.push(
+                              rootContext,
+                              MaterialPageRoute(
+                                builder: (_) => const ChatHistoryPage(),
+                              ),
+                            ).then((_) => _loadUnreadMessagesCount());
+                          }
+                        },
+                        icon: const Icon(Icons.chat_bubble),
+                        label: const Text('Send Message'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(persimon),
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          elevation: 0,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop();
+                  },
+                  style: TextButton.styleFrom(
+                    foregroundColor: const Color(darkGrey),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                  child: const Text(
+                    'Keep Swiping',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   @override
@@ -205,25 +491,53 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   IconButton(
-                    onPressed: () {
-                      Navigator.push(
+                    onPressed: () async {
+                      await Navigator.push(
                         context,
                         MaterialPageRoute(
                           builder: (context) => const ChatHistoryPage(),
                         ),
                       );
+                      _loadUnreadMessagesCount();
                     },
-                    icon: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: const Color(persimon),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.chat_bubble,
-                        color: Colors.white,
-                        size: 24,
-                      ),
+                    icon: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(persimon),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(
+                            Icons.chat_bubble,
+                            color: Colors.white,
+                            size: 24,
+                          ),
+                        ),
+                        if (unreadMessagesCount > 0)
+                          Positioned(
+                            right: 0,
+                            top: 0,
+                            child: Container(
+                              padding: const EdgeInsets.all(4),
+                              decoration: const BoxDecoration(
+                                color: Colors.red,
+                                shape: BoxShape.circle,
+                              ),
+                              child: Text(
+                                unreadMessagesCount > 9
+                                    ? '9+'
+                                    : unreadMessagesCount.toString(),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
                     ),
                   ),
                   const Text(
@@ -264,18 +578,18 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 child: currentIndex < dogs.length
                     ? _buildDogCard(dogs[currentIndex])
                     : Center(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 32),
-                          child: Text(
-                            'There are no more dogs in your neighborhood! Maybe try expanding your search area.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(
-                              fontSize: 18,
-                              color: const Color(ashGrey),
-                            ),
-                          ),
-                        ),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: Text(
+                      'There are no more dogs in your neighborhood! Maybe try expanding your search area.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 18,
+                        color: const Color(ashGrey),
                       ),
+                    ),
+                  ),
+                ),
               ),
             if (!loading && errorText == null && currentIndex < dogs.length)
               Padding(

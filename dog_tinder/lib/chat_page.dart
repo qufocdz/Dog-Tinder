@@ -1,20 +1,37 @@
+import 'dart:async';
+
 import 'package:dog_tinder/globals.dart';
 import 'package:flutter/material.dart';
 
-// Mock message model
-class ChatMessage {
+import 'services/chat_service.dart';
+
+class ChatMessageView {
+  final String id;
   final String text;
   final bool isMe;
-  final String time;
+  final DateTime createdAt;
 
-  ChatMessage({required this.text, required this.isMe, required this.time});
+  ChatMessageView({
+    required this.id,
+    required this.text,
+    required this.isMe,
+    required this.createdAt,
+  });
 }
 
 class ChatPage extends StatefulWidget {
+  final String matchId;
+  final String peerId;
   final String dogName;
-  final String dogImageUrl;
+  final String? dogImageUrl;
 
-  const ChatPage({super.key, required this.dogName, required this.dogImageUrl});
+  const ChatPage({
+    super.key,
+    required this.matchId,
+    required this.peerId,
+    required this.dogName,
+    this.dogImageUrl,
+  });
 
   @override
   State<ChatPage> createState() => _ChatPageState();
@@ -25,39 +42,20 @@ class _ChatPageState extends State<ChatPage> {
   final ScrollController _scrollController = ScrollController();
   final FocusNode _messageFocusNode = FocusNode();
 
-  late List<ChatMessage> messages;
+  bool _loading = false;
+  String? _error;
+  List<ChatMessageView> _messages = [];
+  String? _myUserId;
+  Timer? _pollTimer;
 
   @override
   void initState() {
     super.initState();
-    // Mock messages - only for Charlie, others will be empty - to be added from API
-    if (widget.dogName == 'Charlie') {
-      messages = [
-        ChatMessage(
-          text: 'Hi, great to match with Charlie! He looks so nice 😊',
-          isMe: false,
-          time: '11:05',
-        ),
-        ChatMessage(
-          text:
-              'Hi Lisa. Yes, also glad to match with Maz. he looks the a good boy 😊 What does Charlie not like?',
-          isMe: true,
-          time: '11:05',
-        ),
-        ChatMessage(
-          text: 'Hmm.. big cats aren\'t his favourite 😅',
-          isMe: false,
-          time: '11:29',
-        ),
-        ChatMessage(
-          text: 'Ha! Then they both seem to be scared of big cats.',
-          isMe: true,
-          time: '11:29',
-        ),
-      ];
-    } else {
-      messages = [];
-    }
+    _myUserId = user != null ? user!['id']?.toString() : null;
+    _loadMessages();
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _loadMessages(silent: true);
+    });
   }
 
   @override
@@ -65,25 +63,63 @@ class _ChatPageState extends State<ChatPage> {
     _messageController.dispose();
     _scrollController.dispose();
     _messageFocusNode.dispose();
+    _pollTimer?.cancel();
     super.dispose();
   }
 
-  void _sendMessage() {
-    if (_messageController.text.trim().isEmpty) return;
+  Future<void> _loadMessages({bool silent = false}) async {
+    if (_myUserId == null || _myUserId!.isEmpty) {
+      setState(() {
+        _error =
+        'Brak zalogowanego użytkownika (user["id"] == null). Nie wiem, które wiadomości są moje.';
+      });
+      return;
+    }
 
-    setState(() {
-      messages.add(
-        ChatMessage(
-          text: _messageController.text,
-          isMe: true,
-          time: _getCurrentTime(),
-        ),
-      );
-      _messageController.clear();
-    });
+    if (!silent) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
 
-    // Scroll to bottom
-    Future.delayed(const Duration(milliseconds: 100), () {
+    try {
+      final raw = await ChatService.fetchMessages(widget.matchId);
+      final msgs = raw.map((e) {
+        final m = e as Map<String, dynamic>;
+        final fromId = m['from']?.toString() ?? '';
+        final createdAt = DateTime.parse(m['createdAt'] as String);
+        return ChatMessageView(
+          id: m['_id'] as String,
+          text: m['text'] as String? ?? '',
+          isMe: fromId == _myUserId,
+          createdAt: createdAt,
+        );
+      }).toList();
+
+      setState(() {
+        _messages = msgs;
+      });
+
+      _scrollToBottom();
+    } catch (e) {
+      if (!silent) {
+        setState(() {
+          _error = e.toString();
+        });
+      }
+    } finally {
+      if (mounted && !silent) {
+        setState(() {
+          _loading = false;
+        });
+      }
+    }
+  }
+
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
       _scrollController.animateTo(
         _scrollController.position.maxScrollExtent,
         duration: const Duration(milliseconds: 300),
@@ -92,9 +128,43 @@ class _ChatPageState extends State<ChatPage> {
     });
   }
 
-  String _getCurrentTime() {
-    final now = DateTime.now();
-    return '${now.hour}:${now.minute.toString().padLeft(2, '0')}';
+  Future<void> _sendMessage() async {
+    final text = _messageController.text.trim();
+    if (text.isEmpty) return;
+    if (_myUserId == null || _myUserId!.isEmpty) return;
+
+    _messageController.clear();
+
+    final localMsg = ChatMessageView(
+      id: 'local-${DateTime.now().millisecondsSinceEpoch}',
+      text: text,
+      isMe: true,
+      createdAt: DateTime.now(),
+    );
+
+    setState(() {
+      _messages.add(localMsg);
+    });
+    _scrollToBottom();
+
+    try {
+      await ChatService.sendMessage(
+        matchId: widget.matchId,
+        fromUserId: _myUserId!,
+        text: text,
+      );
+      await _loadMessages(silent: true);
+    } catch (e) {
+      setState(() {
+        _error = 'Nie udało się wysłać wiadomości: $e';
+      });
+    }
+  }
+
+  String _formatTime(DateTime dt) {
+    final h = dt.hour.toString().padLeft(2, '0');
+    final m = dt.minute.toString().padLeft(2, '0');
+    return '$h:$m';
   }
 
   @override
@@ -113,7 +183,12 @@ class _ChatPageState extends State<ChatPage> {
             CircleAvatar(
               radius: 20,
               backgroundColor: const Color(lightGrey),
-              backgroundImage: NetworkImage(widget.dogImageUrl),
+              backgroundImage: widget.dogImageUrl != null
+                  ? NetworkImage(widget.dogImageUrl!)
+                  : null,
+              child: widget.dogImageUrl == null
+                  ? const Icon(Icons.pets, color: Colors.white)
+                  : null,
             ),
             const SizedBox(width: 12),
             Text(
@@ -129,67 +204,82 @@ class _ChatPageState extends State<ChatPage> {
       ),
       body: Column(
         children: [
-          // Messages list
+          if (_error != null)
+            Container(
+              width: double.infinity,
+              color: Colors.red.withOpacity(0.05),
+              padding: const EdgeInsets.all(8),
+              child: Text(
+                _error!,
+                style: const TextStyle(color: Colors.red, fontSize: 12),
+              ),
+            ),
           Expanded(
-            child: messages.isEmpty
+            child: _loading && _messages.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : _messages.isEmpty
                 ? Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(
-                          Icons.chat_bubble_outline,
-                          size: 64,
-                          color: const Color(ashGrey),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'No messages yet',
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    Icons.chat_bubble_outline,
+                    size: 64,
+                    color: const Color(ashGrey),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'No messages yet',
+                    style: TextStyle(
+                      fontSize: 18,
+                      color: const Color(darkGrey),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Say hi to ${widget.dogName}!',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: const Color(ashGrey),
+                    ),
+                  ),
+                ],
+              ),
+            )
+                : ListView.builder(
+              controller: _scrollController,
+              padding: const EdgeInsets.all(16),
+              itemCount: _messages.length,
+              itemBuilder: (context, index) {
+                final message = _messages[index];
+                final showTime = index == _messages.length - 1 ||
+                    _formatTime(_messages[index].createdAt) !=
+                        _formatTime(
+                            _messages[index + 1].createdAt);
+
+                return Column(
+                  crossAxisAlignment: message.isMe
+                      ? CrossAxisAlignment.end
+                      : CrossAxisAlignment.start,
+                  children: [
+                    _buildMessageBubble(message),
+                    if (showTime)
+                      Padding(
+                        padding: const EdgeInsets.only(
+                            top: 4, bottom: 8),
+                        child: Text(
+                          _formatTime(message.createdAt),
                           style: TextStyle(
-                            fontSize: 18,
+                            fontSize: 12,
                             color: const Color(darkGrey),
                           ),
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Say hi to ${widget.dogName}!',
-                          style: TextStyle(
-                            fontSize: 14,
-                            color: const Color(ashGrey),
-                          ),
-                        ),
-                      ],
-                    ),
-                  )
-                : ListView.builder(
-                    controller: _scrollController,
-                    padding: const EdgeInsets.all(16),
-                    itemCount: messages.length,
-                    itemBuilder: (context, index) {
-                      final message = messages[index];
-                      final showTime =
-                          index == messages.length - 1 ||
-                          messages[index].time != messages[index + 1].time;
-
-                      return Column(
-                        children: [
-                          _buildMessageBubble(message),
-                          if (showTime)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4, bottom: 8),
-                              child: Text(
-                                message.time,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: const Color(darkGrey),
-                                ),
-                              ),
-                            ),
-                        ],
-                      );
-                    },
-                  ),
+                      ),
+                  ],
+                );
+              },
+            ),
           ),
-          // Message input
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             decoration: BoxDecoration(
@@ -205,11 +295,9 @@ class _ChatPageState extends State<ChatPage> {
             child: SafeArea(
               child: Row(
                 children: [
-                  // Emoji button
                   IconButton(
                     onPressed: () {
                       _messageFocusNode.requestFocus();
-                      // For now idk how to open emojis so it just opens keyboard xD
                     },
                     icon: Icon(
                       Icons.emoji_emotions_outlined,
@@ -217,7 +305,6 @@ class _ChatPageState extends State<ChatPage> {
                       size: 28,
                     ),
                   ),
-                  // Text field
                   Expanded(
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -231,13 +318,13 @@ class _ChatPageState extends State<ChatPage> {
                         decoration: const InputDecoration(
                           hintText: 'Message...',
                           border: InputBorder.none,
-                          contentPadding: EdgeInsets.symmetric(vertical: 10),
+                          contentPadding:
+                          EdgeInsets.symmetric(vertical: 10),
                         ),
                         onSubmitted: (_) => _sendMessage(),
                       ),
                     ),
                   ),
-                  // Send button
                   IconButton(
                     onPressed: _sendMessage,
                     icon: Icon(Icons.send, color: Color(persimon), size: 28),
@@ -251,9 +338,10 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
-  Widget _buildMessageBubble(ChatMessage message) {
+  Widget _buildMessageBubble(ChatMessageView message) {
     return Align(
-      alignment: message.isMe ? Alignment.centerRight : Alignment.centerLeft,
+      alignment:
+      message.isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.only(bottom: 4),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
