@@ -41,13 +41,13 @@ class _LoginPageState extends State<LoginPage> {
       );
     } catch (e) {
       final msg = e.toString();
-      String friendly = 'Logowanie nie powiodło się.';
+      String friendly = 'Log in failed.';
       if (msg.contains('Invalid credentials')) {
-        friendly = 'Nieprawidłowy email lub hasło.';
+        friendly = 'Invalid email or password.';
       } else if (msg.contains('Missing fields')) {
-        friendly = 'Podaj email i hasło.';
+        friendly = 'Type your email and password.';
       } else if (msg.contains('Session expired')) {
-        friendly = 'Sesja wygasła. Zaloguj się ponownie.';
+        friendly = 'Session expired. Please log in again.';
       } else if (msg.contains('Login failed:')) {
         // show server-provided message if any
         final parts = msg.split(':');

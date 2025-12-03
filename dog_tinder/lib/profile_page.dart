@@ -5,8 +5,8 @@ import 'package:image_picker/image_picker.dart';
 import 'globals.dart';
 import 'chat_history_page.dart';
 import 'login_page.dart';
-import 'services/chat_service.dart' show baseUrl; // tylko baseUrl
-import 'services/user_service.dart' show UserService; // tylko klasa
+import 'services/chat_service.dart' show baseUrl;
+import 'services/user_service.dart' show UserService;
 
 class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
@@ -51,20 +51,22 @@ class _ProfilePageState extends State<ProfilePage> {
       if (!mounted) return;
 
       final profileUser = profile['user'] ?? profile;
-      
+
       // Wyczyść cache image'u aby wymuszić odświeżenie z sieci
       final imageUrlDb = (profileUser['imageUrlDb'] ?? '').toString();
       if (imageUrlDb.isNotEmpty && imageUrlDb.startsWith('/')) {
         final fullUrl = '$baseUrl$imageUrlDb';
         imageCache.evict(NetworkImage(fullUrl));
       }
-      
+
       setState(() {
         user = profileUser;
         nameController.text = (profileUser['dogName'] ?? '').toString();
-        descriptionController.text = (profileUser['description'] ?? '').toString();
+        descriptionController.text = (profileUser['description'] ?? '')
+            .toString();
         selectedBirthDate =
-            _parseIso(profileUser['birthdate']?.toString()) ?? DateTime(2020, 1, 1);
+            _parseIso(profileUser['birthdate']?.toString()) ??
+            DateTime(2020, 1, 1);
       });
     } catch (e) {
       print('Failed to load user profile: $e');
@@ -112,7 +114,6 @@ class _ProfilePageState extends State<ProfilePage> {
   }
 
   String _imageUrl(Map<String, dynamic> userData) {
-    // Try new imageUrlDb endpoint first
     final imageUrlDb = (userData['imageUrlDb'] ?? '').toString();
     if (imageUrlDb.isNotEmpty && imageUrlDb.startsWith('/')) {
       // Add timestamp to bust cache
@@ -122,9 +123,6 @@ class _ProfilePageState extends State<ProfilePage> {
     if (imageUrlDb.isNotEmpty && imageUrlDb.startsWith('http')) {
       return imageUrlDb;
     }
-    // Fallback to old imagePath for compatibility
-    final imagePath = (userData['imagePath'] ?? '').toString();
-    if (imagePath.isNotEmpty) return '$baseUrl/uploads/$imagePath';
     return '';
   }
 
@@ -200,7 +198,7 @@ class _ProfilePageState extends State<ProfilePage> {
           ScaffoldMessenger.of(
             context,
           ).showSnackBar(const SnackBar(content: Text('Profile saved')));
-          
+
           // Wczytaj świeże dane z bazy danych po 500ms
           await Future.delayed(const Duration(milliseconds: 500));
           if (mounted) {
@@ -330,9 +328,11 @@ class _ProfilePageState extends State<ProfilePage> {
                               backgroundImage: selectedImageFile != null
                                   ? FileImage(selectedImageFile!)
                                   : (imageUrl.isNotEmpty
-                                      ? NetworkImage(imageUrl)
-                                      : null),
-                              child: (selectedImageFile == null && imageUrl.isEmpty)
+                                        ? NetworkImage(imageUrl)
+                                        : null),
+                              child:
+                                  (selectedImageFile == null &&
+                                      imageUrl.isEmpty)
                                   ? const Icon(
                                       Icons.pets,
                                       size: 60,

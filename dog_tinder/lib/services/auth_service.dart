@@ -120,12 +120,3 @@ class AuthService {
     return await TokenManager.isLoggedIn();
   }
 }
-
-// Minimal mime-type lookup to avoid extra dependencies
-String? lookupMimeType(String path) {
-  final lower = path.toLowerCase();
-  if (lower.endsWith('.png')) return 'image/png';
-  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
-  if (lower.endsWith('.gif')) return 'image/gif';
-  return null;
-}

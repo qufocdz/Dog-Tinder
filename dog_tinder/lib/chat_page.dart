@@ -70,8 +70,7 @@ class _ChatPageState extends State<ChatPage> {
   Future<void> _loadMessages({bool silent = false}) async {
     if (_myUserId == null || _myUserId!.isEmpty) {
       setState(() {
-        _error =
-        'Brak zalogowanego użytkownika (user["id"] == null). Nie wiem, które wiadomości są moje.';
+        _error = 'No user ID found. Please log in again.';
       });
       return;
     }
@@ -156,7 +155,7 @@ class _ChatPageState extends State<ChatPage> {
       await _loadMessages(silent: true);
     } catch (e) {
       setState(() {
-        _error = 'Nie udało się wysłać wiadomości: $e';
+        _error = 'Failed to send message: $e';
       });
     }
   }
@@ -219,66 +218,65 @@ class _ChatPageState extends State<ChatPage> {
                 ? const Center(child: CircularProgressIndicator())
                 : _messages.isEmpty
                 ? Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.chat_bubble_outline,
-                    size: 64,
-                    color: const Color(ashGrey),
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'No messages yet',
-                    style: TextStyle(
-                      fontSize: 18,
-                      color: const Color(darkGrey),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Say hi to ${widget.dogName}!',
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: const Color(ashGrey),
-                    ),
-                  ),
-                ],
-              ),
-            )
-                : ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.all(16),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final message = _messages[index];
-                final showTime = index == _messages.length - 1 ||
-                    _formatTime(_messages[index].createdAt) !=
-                        _formatTime(
-                            _messages[index + 1].createdAt);
-
-                return Column(
-                  crossAxisAlignment: message.isMe
-                      ? CrossAxisAlignment.end
-                      : CrossAxisAlignment.start,
-                  children: [
-                    _buildMessageBubble(message),
-                    if (showTime)
-                      Padding(
-                        padding: const EdgeInsets.only(
-                            top: 4, bottom: 8),
-                        child: Text(
-                          _formatTime(message.createdAt),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(
+                          Icons.chat_bubble_outline,
+                          size: 64,
+                          color: const Color(ashGrey),
+                        ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'No messages yet',
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 18,
                             color: const Color(darkGrey),
                           ),
                         ),
-                      ),
-                  ],
-                );
-              },
-            ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Say hi to ${widget.dogName}!',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: const Color(ashGrey),
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : ListView.builder(
+                    controller: _scrollController,
+                    padding: const EdgeInsets.all(16),
+                    itemCount: _messages.length,
+                    itemBuilder: (context, index) {
+                      final message = _messages[index];
+                      final showTime =
+                          index == _messages.length - 1 ||
+                          _formatTime(_messages[index].createdAt) !=
+                              _formatTime(_messages[index + 1].createdAt);
+
+                      return Column(
+                        crossAxisAlignment: message.isMe
+                            ? CrossAxisAlignment.end
+                            : CrossAxisAlignment.start,
+                        children: [
+                          _buildMessageBubble(message),
+                          if (showTime)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4, bottom: 8),
+                              child: Text(
+                                _formatTime(message.createdAt),
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: const Color(darkGrey),
+                                ),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
           ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -318,8 +316,7 @@ class _ChatPageState extends State<ChatPage> {
                         decoration: const InputDecoration(
                           hintText: 'Message...',
                           border: InputBorder.none,
-                          contentPadding:
-                          EdgeInsets.symmetric(vertical: 10),
+                          contentPadding: EdgeInsets.symmetric(vertical: 10),
                         ),
                         onSubmitted: (_) => _sendMessage(),
                       ),
@@ -340,8 +337,7 @@ class _ChatPageState extends State<ChatPage> {
 
   Widget _buildMessageBubble(ChatMessageView message) {
     return Align(
-      alignment:
-      message.isMe ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: message.isMe ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.only(bottom: 4),
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

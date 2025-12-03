@@ -5,7 +5,6 @@ import 'package:http/http.dart' as http;
 
 import '../globals.dart';
 
-/// Możesz nadpisać przez --dart-define=API_BASE_URL=...
 const String? envApi = String.fromEnvironment('API_BASE_URL');
 
 String get baseUrl {
@@ -20,7 +19,6 @@ String get baseUrl {
 }
 
 class ChatService {
-  /// Nagłówki z JWT (Authorization: Bearer ...)
   static Future<Map<String, String>> _headers({bool jsonBody = true}) async {
     final token = await TokenManager.getToken();
     final headers = <String, String>{};

@@ -80,8 +80,7 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
 
     if (uid == null || uid.isEmpty) {
       setState(() {
-        _error =
-        'Brak zalogowanego użytkownika (user["id"] == null). Upewnij się, że po logowaniu zapisujesz dane usera w globals.dart.';
+        _error = 'No user is logged in.';
       });
       return;
     }
@@ -234,7 +233,7 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
     if (_chats.isEmpty) {
       return const Center(
         child: Text(
-          'Brak rozmów.\nPolub kogoś w Discover, żeby zacząć czat 😊',
+          'No chats. Start swiping to find matches!',
           textAlign: TextAlign.center,
         ),
       );
@@ -283,18 +282,18 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
                 child: imageUrl == null
                     ? const Icon(Icons.pets, size: 30, color: Colors.white)
                     : Image.network(
-                  imageUrl,
-                  fit: BoxFit.cover,
-                  width: 60,
-                  height: 60,
-                  errorBuilder: (context, error, stackTrace) {
-                    return const Icon(
-                      Icons.pets,
-                      size: 30,
-                      color: Colors.white,
-                    );
-                  },
-                ),
+                        imageUrl,
+                        fit: BoxFit.cover,
+                        width: 60,
+                        height: 60,
+                        errorBuilder: (context, error, stackTrace) {
+                          return const Icon(
+                            Icons.pets,
+                            size: 30,
+                            color: Colors.white,
+                          );
+                        },
+                      ),
               ),
             ),
             const SizedBox(width: 16),
@@ -328,24 +327,21 @@ class _ChatHistoryPageState extends State<ChatHistoryPage> {
               children: [
                 Text(
                   _formatTime(chat.lastAt),
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: const Color(darkGrey),
-                  ),
+                  style: TextStyle(fontSize: 12, color: const Color(darkGrey)),
                 ),
                 if (chat.hasUnread)
                   Container(
                     margin: const EdgeInsets.only(top: 4),
-                    padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(persimon),
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: Text(
-                      chat.unreadCount > 9
-                          ? '9+'
-                          : chat.unreadCount.toString(),
+                      chat.unreadCount > 9 ? '9+' : chat.unreadCount.toString(),
                       style: const TextStyle(
                         fontSize: 10,
                         color: Colors.white,

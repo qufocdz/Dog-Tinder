@@ -19,12 +19,10 @@ class RegisterPage extends StatefulWidget {
 class _RegisterPageState extends State<RegisterPage> {
   bool agreeToTerms = false;
 
-  // New fields for dog-focused registration
   final TextEditingController dogNameController = TextEditingController();
   final TextEditingController emailController = TextEditingController();
   final TextEditingController passwordController = TextEditingController();
-  final TextEditingController birthdateController =
-      TextEditingController(); // readOnly, shows chosen date
+  final TextEditingController birthdateController = TextEditingController();
   final TextEditingController descriptionController = TextEditingController();
 
   File? dogImageFile;
@@ -33,7 +31,7 @@ class _RegisterPageState extends State<RegisterPage> {
   bool isLoading = false;
 
   bool _isValidEmail(String email) {
-    // Email format validation - simple but effective
+    // Email format validation
     final emailRegex = RegExp(
       r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
     );
@@ -101,9 +99,7 @@ class _RegisterPageState extends State<RegisterPage> {
 
     if (!_isValidEmail(email)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter a valid email address.'),
-        ),
+        const SnackBar(content: Text('Please enter a valid email address.')),
       );
       return;
     }

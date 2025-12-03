@@ -6,7 +6,7 @@ import 'globals.dart';
 import 'chat_history_page.dart';
 import 'profile_page.dart';
 import 'chat_page.dart';
-import 'services/chat_service.dart'; // baseUrl + ChatService
+import 'services/chat_service.dart';
 
 class DogProfile {
   final String id;
@@ -37,13 +37,13 @@ class _DiscoverPageState extends State<DiscoverPage> {
   bool loading = true;
   String? errorText;
 
-  int unreadMessagesCount = 0; // suma nieprzeczytanych wiadomości
+  int unreadMessagesCount = 0; // total unread messages
 
   @override
   void initState() {
     super.initState();
-    _checkUnseenMatches();      // popup "It's a match"
-    _loadUnreadMessagesCount(); // badge na ikonie czatu
+    _checkUnseenMatches(); // popup "It's a match"
+    _loadUnreadMessagesCount(); // badge on chat icon
     _loadCandidates();
   }
 
@@ -148,14 +148,6 @@ class _DiscoverPageState extends State<DiscoverPage> {
     if (imageUrlDb.isNotEmpty && imageUrlDb.startsWith('http')) {
       return imageUrlDb;
     }
-    final imagePath = (e['imagePath'] ?? '').toString();
-    if (imagePath.isNotEmpty) {
-      return '$baseUrl/uploads/$imagePath';
-    }
-    final direct = (e['imageUrl'] ?? '').toString();
-    if (direct.startsWith('http')) {
-      return direct;
-    }
     return '';
   }
 
@@ -218,8 +210,9 @@ class _DiscoverPageState extends State<DiscoverPage> {
             name: name,
             age: age > 0 ? age : 3,
             description: desc,
-            imageUrl:
-            img.isEmpty ? 'https://picsum.photos/seed/$id/800/600' : img,
+            imageUrl: img.isEmpty
+                ? 'https://picsum.photos/seed/$id/800/600'
+                : img,
           );
         }).toList();
 
@@ -382,34 +375,33 @@ class _DiscoverPageState extends State<DiscoverPage> {
                     ),
                     child: dog.imageUrl.isNotEmpty
                         ? Image.network(
-                      dog.imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return const Center(
-                          child: Icon(
-                            Icons.pets,
-                            size: 60,
-                            color: Colors.white,
-                          ),
-                        );
-                      },
-                      loadingBuilder:
-                          (context, child, loadingProgress) {
-                        if (loadingProgress == null) return child;
-                        return const Center(
-                          child: CircularProgressIndicator(
-                            color: Color(persimon),
-                          ),
-                        );
-                      },
-                    )
+                            dog.imageUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return const Center(
+                                child: Icon(
+                                  Icons.pets,
+                                  size: 60,
+                                  color: Colors.white,
+                                ),
+                              );
+                            },
+                            loadingBuilder: (context, child, loadingProgress) {
+                              if (loadingProgress == null) return child;
+                              return const Center(
+                                child: CircularProgressIndicator(
+                                  color: Color(persimon),
+                                ),
+                              );
+                            },
+                          )
                         : const Center(
-                      child: Icon(
-                        Icons.pets,
-                        size: 60,
-                        color: Colors.white,
-                      ),
-                    ),
+                            child: Icon(
+                              Icons.pets,
+                              size: 60,
+                              color: Colors.white,
+                            ),
+                          ),
                   ),
                 ),
                 const SizedBox(height: 24),
@@ -578,18 +570,18 @@ class _DiscoverPageState extends State<DiscoverPage> {
                 child: currentIndex < dogs.length
                     ? _buildDogCard(dogs[currentIndex])
                     : Center(
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 32),
-                    child: Text(
-                      'There are no more dogs in your neighborhood! Maybe try expanding your search area.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 18,
-                        color: const Color(ashGrey),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 32),
+                          child: Text(
+                            'There are no more dogs in your neighborhood! Maybe try expanding your search area.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(
+                              fontSize: 18,
+                              color: const Color(ashGrey),
+                            ),
+                          ),
+                        ),
                       ),
-                    ),
-                  ),
-                ),
               ),
             if (!loading && errorText == null && currentIndex < dogs.length)
               Padding(
