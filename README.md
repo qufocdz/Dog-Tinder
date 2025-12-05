@@ -69,6 +69,34 @@ mockups/
  ├── chat_screen.png
 ```
 
+### Discover Screen
+
+![discover_screen](mockups/discover_screen.png)
+
+---
+
+### Profile Screen
+
+![profile_screen](mockups/profile_screen.png)
+
+---
+
+### Edit Profile Screen
+
+![edit_profile_screen](mockups/edit_profile_screen.png)
+
+---
+
+### Conversations Screen
+
+![conversations_screen](mockups/conversations_screen.png)
+
+---
+
+### Chat Screen
+
+![chat_screen](mockups/chat_screen.png)
+
 ---
 
 ## 🚀 Getting Started
